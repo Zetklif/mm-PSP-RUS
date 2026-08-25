@@ -5,6 +5,10 @@
 #include "yaz0.h"
 #include "z64dma.h"
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_asset_loader.h"
+#endif
+
 typedef struct {
     /* 0x0 */ union {
         u32 dmaWord[2];
@@ -91,6 +95,12 @@ void CmpDma_Decompress(uintptr_t romStart, size_t size, void* dst) {
     }
 }
 
+static void CmpDma_RegisterOutput(void* dst, size_t size) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    OotPsp_RegisterRuntimeAssetWrite(dst, size);
+#endif
+}
+
 void CmpDma_LoadFileImpl(uintptr_t segmentRom, s32 id, void* dst, size_t size) {
     uintptr_t romStart;
     size_t compressedSize;
@@ -102,9 +112,13 @@ void CmpDma_LoadFileImpl(uintptr_t segmentRom, s32 id, void* dst, size_t size) {
 
         CmpDma_Decompress(romStart, compressedSize, tempBuf);
         func_80178AC0(tempBuf, dst, size);
+        CmpDma_RegisterOutput(dst, size);
         free(tempBuf);
     } else {
         CmpDma_Decompress(romStart, compressedSize, dst);
+        if ((uintptr_t)gYaz0DecompressDstEnd > (uintptr_t)dst) {
+            CmpDma_RegisterOutput(dst, (uintptr_t)gYaz0DecompressDstEnd - (uintptr_t)dst);
+        }
     }
 }
 
@@ -128,5 +142,12 @@ void CmpDma_LoadAllFiles(uintptr_t segmentVrom, void* dst, size_t size) {
     for (i = 0; i < end; i++) {
         CmpDma_LoadFileImpl(rom, i, nextDst, 0);
         nextDst = gYaz0DecompressDstEnd;
+    }
+
+    /* Treat a fully expanded archive as one source generation as well. This
+     * covers texture imports whose aligned source span reaches across two
+     * adjacent archive entries. */
+    if ((uintptr_t)nextDst > (uintptr_t)dst) {
+        CmpDma_RegisterOutput(dst, (uintptr_t)nextDst - (uintptr_t)dst);
     }
 }

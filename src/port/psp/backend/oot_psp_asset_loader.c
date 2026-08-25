@@ -1978,6 +1978,32 @@ s32 OotPsp_MarkLoadedExternalAssetRangeFlags(const void* ptr, size_t size, u32 f
     return marked;
 }
 
+void OotPsp_RegisterRuntimeAssetWrite(void* ptr, size_t size) {
+    uintptr_t ramStart;
+    uintptr_t ramEnd;
+    u32 serial;
+
+    if (!OotPsp_RamRangeFromPtr(ptr, size, &ramStart, &ramEnd)) {
+        return;
+    }
+
+    OotPsp_InitAssetSema();
+    OotPsp_LockAssetLoader();
+
+    /* The compressed source was tracked when it was read into Yaz0's staging
+     * buffer, but the decoder writes a different destination itself. Replace
+     * any metadata left by the previous contents at that destination. A zero
+     * flag set is intentional: YAR output remains in raw N64 byte order. */
+    OotPsp_ClearLoadedAssetRange((void*)ramStart, size);
+    serial = OotPsp_NextLoadedAssetSerial();
+    OotPsp_StoreLoadedAssetRange((void*)ramStart, size, 0, 0, serial);
+    OotPsp_StoreLoadedAssetSerialRange(ramStart, ramEnd, serial, 0);
+    OotPsp_ClearAssetRangeSerialCache();
+    OotPsp_ClearNativeByteRangeCache();
+
+    OotPsp_UnlockAssetLoader();
+}
+
 s32 OotPsp_IsLoadedNativeExternalAssetRange(const void* ptr, size_t size) {
     u32 flags;
 

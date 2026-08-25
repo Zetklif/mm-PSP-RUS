@@ -65,6 +65,10 @@ s32 OotPsp_GetLoadedExternalAssetRangeFlags(const void* ptr, size_t size, u32* f
  * ranges into the linked PSP representation. Record properties of that final
  * representation so renderers do not interpret it as raw N64 data. */
 s32 OotPsp_MarkLoadedExternalAssetRangeFlags(const void* ptr, size_t size, u32 flags);
+/* Register bytes produced in RAM after an external asset has been decoded or
+ * transformed. This replaces stale source metadata and gives texture caches a
+ * new serial while retaining raw N64 byte order (flags == 0). */
+void OotPsp_RegisterRuntimeAssetWrite(void* ptr, size_t size);
 u32 OotPsp_GetExternalAssetRangeSerial(const void* ptr, size_t size);
 s32 OotPsp_GetNativeExternalTextureMappingRange(const void* ptr, uintptr_t* ramStart, uintptr_t* ramEnd);
 s32 OotPsp_GetNativeExternalTextureRangeStart(const void* ptr, size_t size, uintptr_t* ramStart);
