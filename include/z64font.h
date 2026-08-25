@@ -26,7 +26,10 @@ typedef struct Font {
         u64 force_structure_alignment_font;
     };
     /* 0x11880 */ union {
-        char schar[1280]; // msgBuf
+        /* Encoded message data is a bytecode stream. The original MM build
+         * used unsigned char globally; keep these values unsigned on PSP too
+         * so markers such as 0xFE are not sign-extended. */
+        u8 schar[1280]; // msgBuf
         u16 wchar[640];   // msgBufWide
         u64 force_structure_alignment_msg;
     } msgBuf;

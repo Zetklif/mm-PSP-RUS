@@ -210,7 +210,8 @@ typedef struct MessageContext {
     /* 0x11F22 */ u8 msgMode;
     /* 0x11F23 */ UNK_TYPE1 unk11F23;
     /* 0x11F24 */ union {
-        char schar[200];
+        /* NES/staff text control codes occupy the full unsigned byte range. */
+        u8 schar[200];
         u16 wchar[100];
     } decodedBuffer;
     /* 0x11FEC */ u16 msgBufPos;
