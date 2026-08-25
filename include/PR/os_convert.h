@@ -20,6 +20,10 @@
 
 /* Functions */
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+extern u32 osVirtualToPhysical(void*);
+#else
 extern uintptr_t osVirtualToPhysical(void*);
+#endif
 
 #endif

@@ -27,6 +27,9 @@ OSTime sGraphPrevUpdateEndTime;
 #include "overlays/gamestates/ovl_select/z_select.h"
 #include "overlays/gamestates/ovl_title/z_title.h"
 #include "z_title_setup.h"
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_audio_backend.h"
+#endif
 
 void Graph_FaultClient(void) {
     FaultDrawer_DrawText(30, 100, "ShowFrameBuffer PAGE 0/1");
@@ -237,6 +240,9 @@ void Graph_UpdateGame(GameState* gameState) {
     GameState_IncrementFrameCount(gameState);
     if (R_AUDIOMGR_DEBUG_LEVEL < 3) {
         Audio_Update();
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        OotPspAudio_Update();
+#endif
     }
 }
 

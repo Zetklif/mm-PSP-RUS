@@ -16,6 +16,17 @@
 #undef DEFINE_ACTOR_UNSET
 
 // Actor Overlay Table definition
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#define DEFINE_ACTOR(name, _enumValue, allocType, _debugName)   \
+    {                                                          \
+        ROM_FILE_UNSET, NULL, NULL, NULL, &name##_Profile,     \
+        NULL, allocType, 0,                                    \
+    },
+
+#define DEFINE_ACTOR_INTERNAL(name, _enumValue, allocType, _debugName) \
+    { ROM_FILE_UNSET, NULL, NULL, NULL, &name##_Profile, NULL, allocType, 0 },
+
+#else
 #define DEFINE_ACTOR(name, _enumValue, allocType, _debugName) \
     {                                                         \
         ROM_FILE(ovl_##name),                                 \
@@ -32,6 +43,7 @@
     {                                                                          \
         ROM_FILE_UNSET, NULL, NULL, NULL, &name##_Profile, NULL, allocType, 0, \
     },
+#endif
 
 #define DEFINE_ACTOR_UNSET(_enumValue) { 0 },
 

@@ -1,0 +1,355 @@
+#### Native PSP port #########################################################
+
+# The PSP backend was originally brought up against the OoT port. Keep the
+# shared implementation vendored here so MM builds do not depend on a sibling
+# checkout or on that checkout's current revision.
+PSP_BACKEND_ROOT := src/port/psp/backend
+PSP_BUILD_DIR ?= build/psp-port/$(VERSION)
+PSP_SDK := $(shell psp-config -p 2>/dev/null)
+PSP_PREFIX := $(shell psp-config -P 2>/dev/null)
+PSP_CC := psp-gcc
+PSP_AR := psp-ar
+# Use the shared backend's Media Engine mixer by default. It retains the
+# Allegrex fallback when ME startup or a submitted job cannot complete.
+PSP_AUDIO_MEDIA_ENGINE ?= 1
+# MM synthesizes at 32 kHz. Route its PCM through the backend's software
+# resampler and a normal PSP audio channel; the hardware SRC path inherited
+# from OoT is unreliable with MM's 744-frame source chunks on both PPSSPP and
+# some PSP firmware revisions. This does not disable Media Engine mixing.
+PSP_AUDIO_HARDWARE_SRC ?= 0
+# Keep this enabled while bringing up MM audio. It reports producer, mixer,
+# ring-buffer and output state once per second and is cheap enough for testing.
+PSP_AUDIO_DIAGNOSTICS ?= 1
+
+PSP_COMMON_DEFINES := \
+	-D_LANGUAGE_C \
+	-DNON_MATCHING \
+	-DAVOID_UB \
+	-DMM_VERSION=$(VERSION_MACRO) \
+	-DPLATFORM_PSP=1 \
+	-DPLATFORM_N64=0 \
+	-DTARGET_PSP=1 \
+	-DMML_VERSION=MML_VERSION_MM \
+	-DOOT_PSP_AUDIO_HARDWARE_SRC=$(PSP_AUDIO_HARDWARE_SRC) \
+	-DOOT_PSP_AUDIO_MEDIA_ENGINE=$(PSP_AUDIO_MEDIA_ENGINE) \
+	-DOOT_PSP_AUDIO_SOURCE_FREQUENCY=32000 \
+	-DOOT_PSP_AUDIO_MIXER_VME=1 \
+	-DOOT_PSP_AUDIO_MIXER_FAST=1 \
+	-DOOT_PSP_AUDIO_MIXER_VERIFY=0 \
+	-DOOT_PSP_AUDIO_DIAGNOSTICS=$(PSP_AUDIO_DIAGNOSTICS) \
+	-DF3DEX_GBI_2 \
+	-DF3DEX_GBI_PL \
+	-DGBI_DOWHILE \
+	-D_PSP_FW_VERSION=500
+
+PSP_COMMON_INCLUDES := \
+	-Iinclude \
+	-Iinclude/libc \
+	-Isrc \
+	-I$(BUILD_DIR) \
+	-I. \
+	-I$(EXTRACTED_DIR) \
+	-Isrc/port/psp \
+	-I$(PSP_BACKEND_ROOT) \
+	-I$(PSP_BACKEND_ROOT)/gfx \
+	-I$(PSP_SDK)/include \
+	-I$(PSP_PREFIX)/include
+
+PSP_CFLAGS := -G0 -O2 -g3 -std=gnu11 -Wall -Wextra \
+	-Wno-format-security -Wno-unused-parameter -Wno-unused-variable \
+	-Wno-missing-braces -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast \
+	-Wno-error=int-conversion -Wno-error=incompatible-pointer-types \
+	-fno-strict-aliasing -fwrapv -fno-common -fsigned-char \
+	-ffunction-sections -fdata-sections -fno-exceptions -fno-unwind-tables \
+	-fno-asynchronous-unwind-tables -fno-ident \
+	-include src/port/psp/mm_psp_compat.h \
+	$(PSP_COMMON_DEFINES) $(PSP_COMMON_INCLUDES)
+
+PSP_BACKEND_SOURCES := \
+	$(PSP_BACKEND_ROOT)/gfx/gfx_cc.c \
+	$(PSP_BACKEND_ROOT)/gfx/gfx_fast3d.c \
+	$(PSP_BACKEND_ROOT)/gfx/gfx_window_psp.c \
+	$(PSP_BACKEND_ROOT)/gfx/psp_texture_manager.c \
+	$(PSP_BACKEND_ROOT)/libultra_psp.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_asset_loader.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_audio_backend.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_audiomgr.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_controls.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_dve.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_home_menu.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_memory.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_mixer.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_performance.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_renderer.c \
+	$(PSP_BACKEND_ROOT)/oot_psp_video.c \
+	$(PSP_BACKEND_ROOT)/sys_ucode_psp.c
+
+PSP_PLATFORM_SOURCES := \
+	src/boot/yaz0.c \
+	src/port/psp/mm_psp_asset_builder.c \
+	src/port/psp/mm_psp_game.c \
+	src/port/psp/mm_psp_gfx_scegu.c \
+	src/port/psp/mm_psp_scheduler.c
+
+PSP_PROBE_SOURCE := src/port/psp/mm_psp_probe.c
+
+PSP_BACKEND_ASM_SOURCES := \
+	$(PSP_BACKEND_ROOT)/gfx/gfx_clip_vfpu.s \
+	$(PSP_BACKEND_ROOT)/gfx/gfx_transform_vfpu.s \
+	$(PSP_BACKEND_ROOT)/oot_psp_me_kcall.s \
+	$(PSP_BACKEND_ROOT)/oot_psp_dve_user.s \
+	$(PSP_BACKEND_ROOT)/oot_psp_ucode_assets.s
+
+PSP_GAME_ASM_SOURCES := \
+	src/code/kanread.s \
+	src/libultra/gu/libm_vals.s \
+	src/libultra/gu/sqrtf.s \
+	src/libultra/mgu/mtxf2l.s \
+	src/libultra/mgu/mtxident.s \
+	src/libultra/mgu/mtxidentf.s \
+	src/libultra/mgu/mtxl2f.s \
+	src/libultra/mgu/normalize.s \
+	src/libultra/mgu/scale.s \
+	src/libultra/mgu/translate.s \
+	src/port/psp/mm_psp_symbols.s
+
+PSP_LINKED_ASSET_SOURCES := \
+	assets/text/message_data_static.c \
+	assets/text/staff_message_data_static.c
+
+PSP_NATIVE_ASSET_SOURCES := $(sort $(filter-out %.inc.c, \
+	$(wildcard assets/archives/*/*.c) \
+	$(wildcard assets/boot/*/*.c) \
+	$(wildcard assets/code/*/*.c) \
+	$(wildcard assets/interface/*/*.c) \
+	$(wildcard assets/text/*.c) \
+	$(wildcard assets/objects/*/*.c) \
+	$(wildcard assets/scenes/*/*.c) \
+	$(wildcard assets/scenes/*/*/*.c) \
+	$(wildcard assets/textures/*/*.c) \
+	$(wildcard assets/misc/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/archives/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/boot/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/code/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/interface/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/objects/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/scenes/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/scenes/*/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/textures/*/*.c) \
+	$(wildcard $(EXTRACTED_DIR)/assets/misc/*/*.c)))
+
+# Reuse the version-selected source list from the native spec. This is important
+# for MM because the US build chooses the NES message/file-select sources while
+# the Japanese variants coexist in the tree.
+PSP_SPEC_C_SOURCES := $(foreach source,$(patsubst $(BUILD_DIR)/%.o,%.c,$(filter $(BUILD_DIR)/%.o,$(SPEC_O_FILES))),$(if $(wildcard $(source)),$(source)))
+PSP_GAME_SOURCE_CANDIDATES := $(filter \
+	src/audio/% \
+	src/buffers/% \
+	src/code/% \
+	src/overlays/% \
+	src/boot/libc64/% \
+	src/boot/libm/% \
+	src/boot/libu64/% \
+	src/libultra/gu/% \
+	src/libultra/mgu/% \
+	src/libultra/libc/% \
+	src/libultra/vimodes/%,$(PSP_SPEC_C_SOURCES))
+
+# The vendored backend replaces the N64 scheduler, audio manager, microcode,
+# and process entry point. The remaining sources are linked directly so MM's
+# N64 overlays become normal PSP code.
+PSP_GAME_SOURCES := $(sort $(filter-out \
+	src/code/audio_thread_manager.c \
+	src/code/main.c \
+	src/code/padmgr.c \
+	src/code/sched.c \
+	src/code/sys_flashrom.c \
+	src/code/sys_ucode.c \
+	src/audio/tables/samplebank_table.c \
+	src/audio/tables/sequence_table.c \
+	src/audio/tables/soundfont_table.c,$(PSP_GAME_SOURCE_CANDIDATES)))
+
+PSP_BACKEND_OBJECTS := $(patsubst $(PSP_BACKEND_ROOT)/%.c,$(PSP_BUILD_DIR)/backend/%.o,$(PSP_BACKEND_SOURCES))
+PSP_PLATFORM_OBJECTS := $(patsubst %.c,$(PSP_BUILD_DIR)/%.o,$(PSP_PLATFORM_SOURCES))
+PSP_PROBE_OBJECT := $(PSP_BUILD_DIR)/$(PSP_PROBE_SOURCE:.c=.o)
+PSP_BACKEND_ASM_OBJECTS := $(patsubst $(PSP_BACKEND_ROOT)/%.s,$(PSP_BUILD_DIR)/backend/%.o,$(PSP_BACKEND_ASM_SOURCES))
+PSP_GAME_ASM_OBJECTS := $(patsubst %.s,$(PSP_BUILD_DIR)/%.o,$(PSP_GAME_ASM_SOURCES))
+PSP_GAME_OBJECTS := $(patsubst %.c,$(PSP_BUILD_DIR)/%.o,$(PSP_GAME_SOURCES))
+PSP_LINKED_ASSET_OBJECTS := $(patsubst %.c,$(PSP_BUILD_DIR)/%.o,$(PSP_LINKED_ASSET_SOURCES))
+PSP_NATIVE_ASSET_OBJECTS := $(patsubst %.c,$(PSP_BUILD_DIR)/%.o,$(PSP_NATIVE_ASSET_SOURCES))
+PSP_BACKEND_LIBRARY := $(PSP_BUILD_DIR)/libmm_psp_backend.a
+PSP_PORT_LIBRARY := $(PSP_BUILD_DIR)/libmm_psp_port.a
+PSP_BASE_ELF := $(PSP_BUILD_DIR)/mm-psp-port.base.elf
+PSP_ELF := $(PSP_BUILD_DIR)/mm-psp-port.elf
+PSP_PRX_ELF := $(PSP_BUILD_DIR)/mm-psp-port.prx.elf
+PSP_PRX := $(PSP_BUILD_DIR)/mm-psp-port.prx
+PSP_PBP := $(PSP_BUILD_DIR)/EBOOT.PBP
+PSP_DVEMGR_SOURCE_DIR := $(PSP_BACKEND_ROOT)/dvemgr
+PSP_DVEMGR_BUILD_DIR := $(PSP_BUILD_DIR)/dvemgr
+PSP_DVEMGR_OBJECTS := \
+	$(PSP_DVEMGR_BUILD_DIR)/main.o \
+	$(PSP_DVEMGR_BUILD_DIR)/exports.o \
+	$(PSP_DVEMGR_BUILD_DIR)/imports.o
+PSP_DVEMGR_ELF := $(PSP_DVEMGR_BUILD_DIR)/dvemgr.elf
+PSP_DVEMGR_PRX := $(PSP_BUILD_DIR)/Plugins/dvemgr.prx
+PSP_ASSET_SEGMENT_SOURCE := $(PSP_BUILD_DIR)/oot_psp_asset_segments.S
+PSP_ASSET_SEGMENT_TABLE_SOURCE := $(PSP_BUILD_DIR)/oot_psp_asset_segments.c
+PSP_ASSET_SEGMENT_STAMP := $(PSP_BUILD_DIR)/oot_psp_asset_segments.stamp
+PSP_ASSET_SEGMENT_DATA_DIR := $(PSP_BUILD_DIR)/data/segments
+PSP_ASSET_SEGMENT_OBJECT := $(PSP_BUILD_DIR)/oot_psp_asset_segments.o
+PSP_ASSET_SEGMENT_TABLE_OBJECT := $(PSP_BUILD_DIR)/oot_psp_asset_segments_table.o
+PSP_AUDIO_TABLE_SOURCE := $(PSP_BUILD_DIR)/oot_psp_audio_tables.c
+PSP_AUDIO_TABLE_OBJECT := $(PSP_BUILD_DIR)/oot_psp_audio_tables.o
+PSP_ASSET_OBJECTS := $(PSP_ASSET_SEGMENT_OBJECT) $(PSP_ASSET_SEGMENT_TABLE_OBJECT) $(PSP_AUDIO_TABLE_OBJECT)
+PSP_BACKEND_DEPS := $(PSP_BACKEND_OBJECTS:.o=.d) $(PSP_PLATFORM_OBJECTS:.o=.d) $(PSP_PROBE_OBJECT:.o=.d) \
+	$(PSP_BACKEND_ASM_OBJECTS:.o=.d) $(PSP_GAME_ASM_OBJECTS:.o=.d) $(PSP_GAME_OBJECTS:.o=.d) \
+	$(PSP_LINKED_ASSET_OBJECTS:.o=.d) $(PSP_NATIVE_ASSET_OBJECTS:.o=.d) $(PSP_ASSET_OBJECTS:.o=.d) \
+	$(PSP_DVEMGR_OBJECTS:.o=.d)
+
+PSP_LIBS := -L$(PSP_SDK)/lib -L$(PSP_PREFIX)/lib -lme-core -lpspdmac -lpspgu -lpspgum -ljpeg -lz \
+	-lpspdisplay -lpspge -lpspfpu -lpspctrl -lpsppower -lpspaudio -lpspdebug -lpspkubridge
+PSP_LDFLAGS := -specs=$(PSP_SDK)/lib/prxspecs -Wl,-q,-T$(PSP_SDK)/lib/linkfile.prx \
+	-Wl,-zmax-page-size=128 -Wl,--gc-sections -Wl,-u,module_info \
+	-Wl,-u,sceKernelChangeThreadPriority -Wl,-u,ootPspDveImport -Wl,-u,ootPspMeKcallImport \
+	$(PSP_SDK)/lib/prxexports.o $(PSP_LIBS)
+
+psp-port: $(PSP_PBP) $(PSP_DVEMGR_PRX)
+	@echo "MM PSP port is up to date: $(PSP_PBP) and $(PSP_DVEMGR_PRX)"
+	@echo "Packed assets: $(PSP_ASSET_SEGMENT_DATA_DIR)/oot_psp_assets.bin"
+
+psp-port-backend: $(PSP_BACKEND_LIBRARY)
+
+psp-port-core psp-port-game: $(PSP_GAME_OBJECTS)
+
+psp-port-assets: $(PSP_ASSET_OBJECTS)
+
+$(PSP_DVEMGR_BUILD_DIR)/%.o: $(PSP_DVEMGR_SOURCE_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c -Os -G0 -Wall -fshort-wchar -fno-pic \
+		-mno-check-zero-division -D_PSP_FW_VERSION=500 -I$(PSP_SDK)/include -I$(PSP_PREFIX)/include \
+		-o $@ $<
+
+$(PSP_DVEMGR_BUILD_DIR)/%.o: $(PSP_DVEMGR_SOURCE_DIR)/%.s
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c -x assembler-with-cpp -D_PSP_FW_VERSION=500 \
+		-I$(PSP_SDK)/include -I$(PSP_PREFIX)/include -o $@ $<
+
+$(PSP_DVEMGR_ELF): $(PSP_DVEMGR_OBJECTS)
+	$(PSP_CC) -L$(PSP_PREFIX)/lib -L$(PSP_SDK)/lib \
+		-specs=$(PSP_SDK)/lib/prxspecs -Wl,-q,-T$(PSP_SDK)/lib/linkfile.prx \
+		-nostartfiles -Wl,-zmax-page-size=128 $^ -nostdlib -lpspdebug -lpspdisplay_driver -lpspctrl_driver \
+		-lpspmodinfo -lpspsdk -lpspkernel -o $@
+	psp-fixup-imports $@
+
+$(PSP_DVEMGR_PRX): $(PSP_DVEMGR_ELF)
+	@mkdir -p $(dir $@)
+	psp-prxgen $< $@
+
+$(PSP_BUILD_DIR)/backend/%.o: $(PSP_BACKEND_ROOT)/%.s
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c -x assembler-with-cpp \
+		$(filter-out -D_LANGUAGE_C,$(PSP_COMMON_DEFINES)) $(PSP_COMMON_INCLUDES) -o $@ $<
+
+$(PSP_BUILD_DIR)/%.o: %.s
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c -x assembler-with-cpp \
+		$(filter-out -D_LANGUAGE_C,$(PSP_COMMON_DEFINES)) $(PSP_COMMON_INCLUDES) -Wa,-I$(EXTRACTED_DIR) -o $@ $<
+
+$(PSP_BUILD_DIR)/backend/%.o: $(PSP_BACKEND_ROOT)/%.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) -o $@ $<
+
+# The OoT renderer uses memalign only for permanent framebuffer/texture
+# storage. Route those allocations to dedicated user-partition blocks so the
+# 64 KiB newlib bootstrap heap and MM's 8 MiB game arena remain independent.
+$(PSP_BUILD_DIR)/src/port/psp/mm_psp_gfx_scegu.o: src/port/psp/mm_psp_gfx_scegu.c \
+		$(PSP_BACKEND_ROOT)/gfx/gfx_scegu.c src/port/psp/oot_psp_gfx_ext.h
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) \
+		-Dmemalign=MmPspRenderer_Memalign -o $@ $<
+
+# The shared loader expects OoT's all-remaining-memory newlib heap. MM instead
+# gives its cache malloc/free calls reversible user-partition allocations.
+$(PSP_BUILD_DIR)/backend/oot_psp_asset_loader.o: $(PSP_BACKEND_ROOT)/oot_psp_asset_loader.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) \
+		-Dmalloc=MmPspAssetCache_Malloc -Dfree=MmPspAssetCache_Free -o $@ $<
+
+$(PSP_BUILD_DIR)/src/port/psp/%.o: src/port/psp/%.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) -o $@ $<
+
+# The message tables calculate packed-ROM offsets and lengths by subtracting
+# adjacent _message_* symbols.  Keep these arrays in source order in one
+# section, just as the native asset build does.  With -fdata-sections and GCC's
+# top-level reordering, the PSP linker can lay the individual message sections
+# out backwards, turning a small message length into a huge unsigned DMA size.
+$(PSP_LINKED_ASSET_OBJECTS): $(PSP_BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c \
+		$(filter-out -fdata-sections,$(PSP_CFLAGS)) -fno-toplevel-reorder -o $@ $<
+
+$(PSP_BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) -o $@ $<
+
+$(PSP_ASSET_SEGMENT_STAMP): tools/psp_port_mm_generate.py $(PSP_NATIVE_ASSET_OBJECTS)
+	@mkdir -p $(PSP_ASSET_SEGMENT_DATA_DIR)
+	$(PYTHON) tools/psp_port_mm_generate.py segments $(VERSION) \
+		$(PSP_ASSET_SEGMENT_SOURCE) $(PSP_ASSET_SEGMENT_TABLE_SOURCE) \
+		$(PSP_ASSET_SEGMENT_DATA_DIR) --build-root $(PSP_BUILD_DIR)
+	@touch $@
+
+$(PSP_ASSET_SEGMENT_SOURCE) $(PSP_ASSET_SEGMENT_TABLE_SOURCE): $(PSP_ASSET_SEGMENT_STAMP)
+	@test -f $@
+	@touch $@
+
+$(PSP_AUDIO_TABLE_SOURCE): tools/psp_port_mm_generate.py $(EXTRACTED_DIR)/baserom/code
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/psp_port_mm_generate.py audio $(VERSION) $@
+
+$(PSP_ASSET_SEGMENT_OBJECT): $(PSP_ASSET_SEGMENT_SOURCE)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c -x assembler-with-cpp \
+		$(PSP_COMMON_DEFINES) $(PSP_COMMON_INCLUDES) -o $@ $<
+
+$(PSP_ASSET_SEGMENT_TABLE_OBJECT): $(PSP_ASSET_SEGMENT_TABLE_SOURCE)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) -o $@ $<
+
+$(PSP_AUDIO_TABLE_OBJECT): $(PSP_AUDIO_TABLE_SOURCE)
+	$(PSP_CC) -MMD -MP -MF $(@:.o=.d) -MT $@ -c $(PSP_CFLAGS) -o $@ $<
+
+$(PSP_BACKEND_LIBRARY): $(PSP_BACKEND_OBJECTS) $(PSP_PLATFORM_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(RM) $@
+	$(PSP_AR) rcs $@ $^
+
+$(PSP_PORT_LIBRARY): $(PSP_BACKEND_OBJECTS) $(PSP_PLATFORM_OBJECTS) $(PSP_BACKEND_ASM_OBJECTS) \
+		$(PSP_GAME_ASM_OBJECTS) $(PSP_GAME_OBJECTS) $(PSP_ASSET_OBJECTS) $(PSP_LINKED_ASSET_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(file >$@.rsp,$^)
+	$(RM) $@
+	$(PSP_AR) rcs $@ @$@.rsp
+
+$(PSP_BASE_ELF): $(PSP_PORT_LIBRARY) $(PSP_PROBE_OBJECT)
+	$(PSP_CC) -o $@ $(PSP_PROBE_OBJECT) -Wl,--start-group $(PSP_PORT_LIBRARY) -Wl,--end-group $(PSP_LDFLAGS)
+	psp-fixup-imports $@
+
+$(PSP_ELF): $(PSP_BASE_ELF)
+	cp $< $@
+
+$(PSP_PRX_ELF): $(PSP_ELF) $(PSP_ASSET_SEGMENT_SOURCE)
+	$(PYTHON) tools/psp_port_strip_asset_relocs.py $< $(PSP_ASSET_SEGMENT_SOURCE) $@
+
+$(PSP_PRX): $(PSP_PRX_ELF)
+	psp-prxgen $< $@
+
+$(PSP_PBP): $(PSP_PRX) $(PSP_ASSET_SEGMENT_STAMP)
+	mksfoex -d MEMSIZE=1 "Majora's Mask PSP Port" $(PSP_BUILD_DIR)/PARAM.SFO
+	pack-pbp $@ $(PSP_BUILD_DIR)/PARAM.SFO NULL NULL NULL NULL NULL $< NULL
+
+psp-port-clean:
+	$(RM) -r $(PSP_BUILD_DIR)
+
+.PHONY: psp-port psp-port-backend psp-port-core psp-port-game psp-port-assets psp-port-clean
+
+-include $(PSP_BACKEND_DEPS)

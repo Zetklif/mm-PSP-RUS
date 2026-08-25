@@ -4,8 +4,18 @@
 #include "fault.h"
 #include "libu64/loadfragment.h"
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+/*
+ * PSP links the player and pause overlays into the PRX as native code.  The
+ * original overlay images in the packed asset file are big-endian N64 MIPS
+ * binaries and must never be copied into memory and executed on PSP.
+ */
+#define KALEIDO_OVERLAY(name) \
+    { NULL, ROM_FILE_UNSET, NULL, NULL, 0, #name }
+#else
 #define KALEIDO_OVERLAY(name) \
     { NULL, ROM_FILE(ovl_##name), SEGMENT_START(ovl_##name), SEGMENT_END(ovl_##name), 0, #name }
+#endif
 
 KaleidoMgrOverlay gKaleidoMgrOverlayTable[KALEIDO_OVL_MAX] = {
     KALEIDO_OVERLAY(kaleido_scope),
@@ -39,22 +49,45 @@ uintptr_t KaleidoManager_FaultAddrConv(uintptr_t address, void* param) {
 }
 
 void KaleidoManager_LoadOvl(KaleidoMgrOverlay* ovl) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    if (ovl != NULL) {
+        ovl->loadedRamAddr = NULL;
+        ovl->offset = 0;
+    }
+    gKaleidoMgrCurOvl = ovl;
+#else
     ovl->loadedRamAddr = sKaleidoAreaPtr;
     Overlay_Load(ovl->file.vromStart, ovl->file.vromEnd, ovl->vramStart, ovl->vramEnd, ovl->loadedRamAddr);
     ovl->offset = (uintptr_t)ovl->loadedRamAddr - (uintptr_t)ovl->vramStart;
     gKaleidoMgrCurOvl = ovl;
+#endif
 }
 
 void KaleidoManager_ClearOvl(KaleidoMgrOverlay* ovl) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    if (ovl != NULL) {
+        ovl->loadedRamAddr = NULL;
+        ovl->offset = 0;
+    }
+    if (gKaleidoMgrCurOvl == ovl) {
+        gKaleidoMgrCurOvl = NULL;
+    }
+#else
     if (ovl->loadedRamAddr != NULL) {
         ovl->offset = 0;
         bzero(ovl->loadedRamAddr, (uintptr_t)ovl->vramEnd - (uintptr_t)ovl->vramStart);
         ovl->loadedRamAddr = NULL;
         gKaleidoMgrCurOvl = NULL;
     }
+#endif
 }
 
 void KaleidoManager_Init(PlayState* play) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    (void)play;
+    sKaleidoAreaPtr = NULL;
+    gKaleidoMgrCurOvl = NULL;
+#else
     s32 largestSize = 0;
     s32 size;
     u32 i;
@@ -69,9 +102,14 @@ void KaleidoManager_Init(PlayState* play) {
     sKaleidoAreaPtr = THA_AllocTailAlign16(&play->state.tha, largestSize);
     gKaleidoMgrCurOvl = NULL;
     Fault_AddAddrConvClient(&sKaleidoMgrFaultAddrConvClient, KaleidoManager_FaultAddrConv, NULL);
+#endif
 }
 
 void KaleidoManager_Destroy(void) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    sKaleidoAreaPtr = NULL;
+    gKaleidoMgrCurOvl = NULL;
+#else
     Fault_RemoveAddrConvClient(&sKaleidoMgrFaultAddrConvClient);
 
     if (gKaleidoMgrCurOvl != NULL) {
@@ -80,9 +118,13 @@ void KaleidoManager_Destroy(void) {
     }
 
     sKaleidoAreaPtr = NULL;
+#endif
 }
 
 void* KaleidoManager_GetRamAddr(void* vram) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    return vram;
+#else
     if (gKaleidoMgrCurOvl == NULL) {
         s32 pad[2];
         KaleidoMgrOverlay* ovl = &gKaleidoMgrOverlayTable[0];
@@ -102,4 +144,5 @@ void* KaleidoManager_GetRamAddr(void* vram) {
     }
 
     return (void*)((uintptr_t)vram + gKaleidoMgrCurOvl->offset);
+#endif
 }

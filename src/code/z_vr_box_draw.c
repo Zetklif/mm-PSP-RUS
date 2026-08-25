@@ -21,6 +21,19 @@ void Skybox_SetColors(SkyboxContext* skyboxCtx, u8 primR, u8 primG, u8 primB, u8
 }
 
 void Skybox_Draw(SkyboxContext* skyboxCtx, GraphicsContext* gfxCtx, s16 skyboxId, s16 blend, f32 x, f32 y, f32 z) {
+#if defined(TARGET_PSP)
+    /*
+     * SKYBOX_2 deliberately has no texture or palette backing in Skybox_Setup.
+     * The N64 submits its null CI8 display lists anyway, then MM covers the
+     * result with the fully opaque fog-colour pass in
+     * Environment_DrawSkyboxFilters.  Do not make the PSP renderer import
+     * those unused null texture tiles.
+     */
+    if (skyboxId == SKYBOX_2) {
+        return;
+    }
+#endif
+
     OPEN_DISPS(gfxCtx);
 
     Gfx_SetupDL40_Opa(gfxCtx);

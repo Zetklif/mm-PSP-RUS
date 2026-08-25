@@ -204,6 +204,10 @@ void AudioSfx_RestoreBgmVolume(u8 channelIndex);
 void AudioSfx_PlaySfx(u16 sfxId, Vec3f* pos, u8 token, f32* freqScale, f32* volume, s8* reverbAdd);
 void AudioSfx_ProcessRequest(void);
 void AudioSfx_StopByBank(u8 bankId);
+
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#define Audio_StopSfxByBank AudioSfx_StopByBank
+#endif
 void AudioSfx_StopByPosAndBank(u8 bankId, Vec3f* pos);
 void AudioSfx_StopByPos(Vec3f* pos);
 void AudioSfx_StopByPosAndId(Vec3f* pos, u16 sfxId);

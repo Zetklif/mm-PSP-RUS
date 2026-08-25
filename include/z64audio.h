@@ -37,7 +37,14 @@ typedef enum {
 #define FILTER_BUF_PART1 (8 * SAMPLE_SIZE)
 #define FILTER_BUF_PART2 (8 * SAMPLE_SIZE)
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+/* Raw Audiobank references are small offsets.  Native PSP pointers live above
+ * 0x01000000, unlike N64 KSEG0 pointers, so K0BASE would misclassify every
+ * relocated PSP soundfont pointer as another raw offset. */
+#define AUDIO_RELOCATED_ADDRESS_START 0x01000000U
+#else
 #define AUDIO_RELOCATED_ADDRESS_START K0BASE
+#endif
 
 // To be used with AudioThread_CountAndReleaseNotes()
 #define AUDIO_NOTE_RELEASE (1 << 0)

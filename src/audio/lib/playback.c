@@ -6,6 +6,14 @@ void AudioPlayback_NoteSetResamplingRate(NoteSampleState* sampleState, f32 resam
 void AudioList_PushFront(AudioListItem* list, AudioListItem* item);
 void AudioPlayback_NoteInitForLayer(Note* note, SequenceLayer* layer);
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+static s32 MmPspAudio_IsSafeLayerPtr(const SequenceLayer* layer) {
+    uintptr_t address = (uintptr_t)layer;
+
+    return (address >= 0x08000000U) && (address < 0x0C000000U) && ((address & 3) == 0);
+}
+#endif
+
 typedef struct {
     /* 0x00 */ u8 targetReverbVol;
     /* 0x01 */ u8 gain; // Increases volume by a multiplicative scaling factor. Represented as a UQ4.4 number
@@ -149,13 +157,13 @@ void AudioPlayback_NoteSetResamplingRate(NoteSampleState* sampleState, f32 resam
 }
 
 void AudioPlayback_NoteInit(Note* note) {
-    if (note->playbackState.parentLayer->adsr.decayIndex == 0) {
-        AudioEffects_InitAdsr(&note->playbackState.adsr, note->playbackState.parentLayer->channel->adsr.envelope,
-                              &note->playbackState.adsrVolScaleUnused);
-    } else {
-        AudioEffects_InitAdsr(&note->playbackState.adsr, note->playbackState.parentLayer->adsr.envelope,
-                              &note->playbackState.adsrVolScaleUnused);
-    }
+    SequenceLayer* layer = note->playbackState.parentLayer;
+    AdsrSettings* settings = (layer->adsr.decayIndex == 0) ? &layer->channel->adsr : &layer->adsr;
+
+    AudioEffects_InitAdsr(&note->playbackState.adsr, settings->envelope, &note->playbackState.adsrVolScaleUnused);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    note->playbackState.adsr.action.s.envelopeBigEndian = settings->envelopeBigEndian;
+#endif
 
     note->playbackState.status = PLAYBACK_STATUS_0;
     note->playbackState.adsr.action.s.status = ADSR_STATUS_INITIAL;
@@ -194,9 +202,15 @@ void AudioPlayback_ProcessNotes(void) {
         sampleState = &gAudioCtx.sampleStateList[gAudioCtx.sampleStateOffset + i];
         playbackState = &note->playbackState;
         if (playbackState->parentLayer != NO_LAYER) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            if (!MmPspAudio_IsSafeLayerPtr(playbackState->parentLayer)) {
+                continue;
+            }
+#else
             if ((u32)playbackState->parentLayer < 0x7FFFFFFF) {
                 continue;
             }
+#endif
 
             if ((note != playbackState->parentLayer->note) && (playbackState->status == PLAYBACK_STATUS_0)) {
                 playbackState->adsr.action.s.release = true;

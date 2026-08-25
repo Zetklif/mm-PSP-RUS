@@ -7,6 +7,7 @@
 #include "z_title_setup.h"
 
 // Linker symbol declarations (used in the table below)
+#if !defined(TARGET_PSP) && !defined(PLATFORM_PSP)
 #define DEFINE_GAMESTATE(_typeName, _enumName, segmentName) DECLARE_OVERLAY_SEGMENT(segmentName)
 #define DEFINE_GAMESTATE_INTERNAL(_typeName, _enumName)
 
@@ -14,6 +15,7 @@
 
 #undef DEFINE_GAMESTATE
 #undef DEFINE_GAMESTATE_INTERNAL
+#endif
 
 // Gamestate Overlay Table definition
 #define DEFINE_GAMESTATE_INTERNAL(typeName, _enumName)                                                    \
@@ -22,6 +24,14 @@
         0,    sizeof(typeName##State),                                                                    \
     },
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#define DEFINE_GAMESTATE(typeName, _enumName, segmentName) \
+    {                                                      \
+        NULL, ROM_FILE_UNSET, NULL, NULL, NULL,             \
+        typeName##_Init, typeName##_Destroy,                \
+        NULL, NULL, 0, sizeof(typeName##State),             \
+    },
+#else
 #define DEFINE_GAMESTATE(typeName, _enumName, segmentName) \
     {                                                      \
         NULL,                                              \
@@ -36,6 +46,7 @@
         0,                                                 \
         sizeof(typeName##State),                           \
     },
+#endif
 
 GameStateOverlay gGameStateOverlayTable[GAMESTATE_ID_MAX] = {
 #include "tables/gamestate_table.h"

@@ -128,7 +128,12 @@ extern GfxMasterList D_0E000000;
     }                       \
     (void)0
 
+#if PLATFORM_PSP
+void* Graph_Alloc(GraphicsContext* gfxCtx, size_t size);
+#define GRAPH_ALLOC(gfxCtx, size) Graph_Alloc(gfxCtx, size)
+#else
 #define GRAPH_ALLOC(gfxCtx, size) ((void*)((gfxCtx)->polyOpa.d = (Gfx*)((u8*)(gfxCtx)->polyOpa.d - ALIGN16(size))))
+#endif
 
 // Custom gbi macro
 #define gDPSetTileCustom(pkt, fmt, siz, width, height, pal, cms, cmt, masks, maskt, shifts, shiftt)                    \

@@ -252,6 +252,18 @@ void AudioEffects_InitAdsr(AdsrState* adsr, EnvelopePoint* envelope, s16* volOut
     // removed, but the function parameter was forgotten and remains.)
 }
 
+static s16 AudioEffects_ReadEnvelopeS16(AdsrState* adsr, s16 value) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    if (adsr->action.s.envelopeBigEndian) {
+        u16 raw = (u16)value;
+
+        return (s16)((raw << 8) | (raw >> 8));
+    }
+#endif
+
+    return value;
+}
+
 /**
  * @return volumeScale
  */
@@ -274,7 +286,7 @@ f32 AudioEffects_UpdateAdsr(AdsrState* adsr) {
         retry:;
             FALLTHROUGH;
         case ADSR_STATUS_LOOP:
-            adsr->delay = adsr->envelope[adsr->envelopeIndex].delay;
+            adsr->delay = AudioEffects_ReadEnvelopeS16(adsr, adsr->envelope[adsr->envelopeIndex].delay);
             switch (adsr->delay) {
                 case ADSR_DISABLE:
                     adsr->action.s.status = ADSR_STATUS_DISABLED;
@@ -285,7 +297,8 @@ f32 AudioEffects_UpdateAdsr(AdsrState* adsr) {
                     break;
 
                 case ADSR_GOTO:
-                    adsr->envelopeIndex = adsr->envelope[adsr->envelopeIndex].arg;
+                    adsr->envelopeIndex =
+                        AudioEffects_ReadEnvelopeS16(adsr, adsr->envelope[adsr->envelopeIndex].arg);
                     goto retry;
 
                 case ADSR_RESTART:
@@ -297,7 +310,8 @@ f32 AudioEffects_UpdateAdsr(AdsrState* adsr) {
                     if (adsr->delay == 0) {
                         adsr->delay = 1;
                     }
-                    adsr->target = adsr->envelope[adsr->envelopeIndex].arg / 32767.0f;
+                    adsr->target =
+                        AudioEffects_ReadEnvelopeS16(adsr, adsr->envelope[adsr->envelopeIndex].arg) / 32767.0f;
                     adsr->target = SQ(adsr->target);
                     adsr->velocity = (adsr->target - adsr->current) / adsr->delay;
                     adsr->action.s.status = ADSR_STATUS_FADE;

@@ -50,5 +50,12 @@ typedef struct NoteSynthesisState {
 } NoteSynthesisState; // size = 0x24
 
 Acmd* AudioSynth_Update(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32 numSamplesPerFrame);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+void AudioSynth_ProcessSequenceControl(void);
+Acmd* AudioSynth_BuildCommandList(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32 numSamplesPerFrame);
+Acmd* AudioSynth_BuildCommandListMe(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart,
+                                     s32 numSamplesPerFrame);
+s32 AudioSynth_CanBuildCommandsOnMe(void);
+#endif
 
 #endif

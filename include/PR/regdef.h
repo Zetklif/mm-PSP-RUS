@@ -1,6 +1,33 @@
 #ifndef PR_REGDEF_H
 #define PR_REGDEF_H
 
+#if defined(TARGET_PSP)
+/*
+ * PSPSDK targets the 32-bit EABI and does not predefine the SGI ABI selector
+ * macros used by this libultra header.  With all of them undefined, the C
+ * preprocessor treats every value as zero: both register maps are selected
+ * and the ABI64 map silently overwrites t0-t3.  Assembly routines which also
+ * use t4-t7 then alias their temporaries and corrupt their results (notably
+ * guMtxF2L/guMtxL2F).
+ *
+ * Allegrex uses the o32 general-purpose and floating-point register naming
+ * convention expected by these libultra sources, so select that map
+ * explicitly for the native PSP build.
+ */
+#ifndef _ABIO32
+#define _ABIO32 1
+#endif
+#ifndef _ABIN32
+#define _ABIN32 2
+#endif
+#ifndef _ABI64
+#define _ABI64 3
+#endif
+#ifndef _MIPS_SIM
+#define _MIPS_SIM _ABIO32
+#endif
+#endif
+
 #ifdef __GNUC__
 #define _MIPS_SIM_ABI32 _ABIO32
 #define _MIPS_SIM_NABI32 _ABIN32

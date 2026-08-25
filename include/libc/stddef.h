@@ -1,3 +1,13 @@
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#if !defined(LIBC_STDDEF_H) || defined(__need_wint_t) || defined(__need_size_t) || defined(__need_ptrdiff_t) || \
+    defined(__need_NULL)
+#if !defined(__need_wint_t) && !defined(__need_size_t) && !defined(__need_ptrdiff_t) && !defined(__need_NULL)
+#define LIBC_STDDEF_H
+#endif
+#include_next <stddef.h>
+#endif
+#else
+
 #ifndef LIBC_STDDEF_H
 #define LIBC_STDDEF_H
 
@@ -23,3 +33,5 @@ typedef signed long ptrdiff_t;
 #endif
 
 #endif /* STDDEF_H */
+
+#endif /* TARGET_PSP || PLATFORM_PSP */

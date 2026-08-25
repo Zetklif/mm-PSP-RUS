@@ -918,3 +918,6 @@ $(BUILD_DIR)/assets/audio/sequence_sizes.h: $(SEQUENCE_O_FILES)
 
 # Print target for debugging
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true
+
+# The native PSP target is kept separate from the matching N64 build rules.
+-include Makefile.psp

@@ -13,6 +13,9 @@
 #include "gfxalloc.h"
 #include "global.h"
 #include "libc64/malloc.h"
+#if PLATFORM_PSP
+#include "oot_psp_gfx_ext.h"
+#endif
 
 // Height of the fragments the color frame buffer (CFB) is split into.
 // It is the maximum amount of lines such that all rgba16 SCREEN_WIDTH-long lines fit into
@@ -140,6 +143,23 @@ Gfx* VisMono_DesaturateDList(Gfx* gfx) {
 
 void VisMono_Draw(VisMono* this, Gfx** gfxP) {
     Gfx* gfx = *gfxP;
+#if PLATFORM_PSP
+    /*
+     * The original display list reinterprets the N64 color framebuffer as
+     * CI8 texture strips.  That CPU buffer is not the PSP GU draw buffer, so
+     * use OoT PSP's native in-place monochrome command instead.
+     */
+    gDPPipeSync(gfx++);
+    gDPSetPrimColor(gfx++, 0, 0, this->vis.primColor.r, this->vis.primColor.g, this->vis.primColor.b,
+                    this->vis.primColor.a);
+    gDPSetEnvColor(gfx++, this->vis.envColor.r, this->vis.envColor.g, this->vis.envColor.b,
+                   this->vis.envColor.a);
+    gOotPspApplyVisMono(gfx++);
+    gDPPipeSync(gfx++);
+
+    *gfxP = gfx;
+    return;
+#else
     u16* tlut;
     Gfx* dList;
     Gfx* dListEnd;
@@ -174,6 +194,7 @@ void VisMono_Draw(VisMono* this, Gfx** gfxP) {
     gDPPipeSync(gfx++);
 
     *gfxP = gfx;
+#endif
 }
 
 void VisMono_DrawOld(VisMono* this) {

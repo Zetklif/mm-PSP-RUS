@@ -5,6 +5,13 @@
  */
 #include "global.h"
 #include "audio/effects.h"
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_audio_backend.h"
+#include <pspkernel.h>
+
+static void* sMmPspAudioExternalPoolAddress;
+static size_t sMmPspAudioExternalPoolSize;
+#endif
 
 AudioTask* AudioThread_UpdateImpl(void);
 void AudioThread_SetFadeOutTimer(s32 seqPlayerIndex, s32 fadeTimer);
@@ -32,6 +39,14 @@ AudioTask* AudioThread_UpdateImpl(void) {
     u32 msg;
     s32 validCount;
     s32 i;
+#if defined(TARGET_PSP) && (defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS)
+    u32 profileStartUsec;
+    u32 profileAfterWaitUsec;
+    u32 profileBeforeSequenceUsec;
+    u32 profileAfterSequenceUsec;
+    u32 profileAfterBuildUsec;
+    u32 profileEndUsec;
+#endif
 
     gAudioCtx.totalTaskCount++;
     if ((gAudioCtx.totalTaskCount % gAudioCtx.audioBufferParameters.specUnk4) != 0) {
@@ -47,6 +62,21 @@ AudioTask* AudioThread_UpdateImpl(void) {
         return NULL;
     }
 
+#if defined(TARGET_PSP) && (defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS)
+    profileStartUsec = sceKernelGetSystemTimeLow();
+#endif
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* The previous ME job writes persistent mixer state as well as PCM. Wait
+     * before sequence processing or command construction mutates that state
+     * for the next update. */
+    OotPspAudioBackend_SetDiagnosticProducerState(OOT_PSP_AUDIO_PRODUCER_STATE_WAIT_ME);
+    OotPspAudioBackend_WaitForCommands();
+    OotPspAudioBackend_SetDiagnosticProducerState(OOT_PSP_AUDIO_PRODUCER_STATE_PREPARE);
+#endif
+#if defined(TARGET_PSP) && (defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS)
+    profileAfterWaitUsec = sceKernelGetSystemTimeLow();
+#endif
+
     osSendMesg(gAudioCtx.taskStartQueueP, (OSMesg)gAudioCtx.totalTaskCount, OS_MESG_NOBLOCK);
     gAudioCtx.rspTaskIndex ^= 1;
     gAudioCtx.curAiBufferIndex++;
@@ -56,6 +86,7 @@ AudioTask* AudioThread_UpdateImpl(void) {
     // Division converts size to numSamples: 2 channels (left/right) * 2 bytes per sample
     numSamplesRemainingInAi = osAiGetLength() / (2 * SAMPLE_SIZE);
 
+#if !defined(TARGET_PSP) && !defined(PLATFORM_PSP)
     if (gAudioCtx.resetTimer < 16) {
         if (gAudioCtx.numSamplesPerFrame[index] != 0) {
             osAiSetNextBuffer(gAudioCtx.aiBuffers[index], 2 * gAudioCtx.numSamplesPerFrame[index] * (s32)SAMPLE_SIZE);
@@ -63,6 +94,7 @@ AudioTask* AudioThread_UpdateImpl(void) {
             if (gAudioCtx.numSamplesPerFrame[index]) {}
         }
     }
+#endif
 
     if (gAudioCustomUpdateFunction != NULL) {
         gAudioCustomUpdateFunction();
@@ -149,12 +181,52 @@ AudioTask* AudioThread_UpdateImpl(void) {
         return (void*)-1;
     }
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    Acmd* abiCmdStart = gAudioCtx.curAbiCmdBuf;
+
+#if defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS
+    profileBeforeSequenceUsec = sceKernelGetSystemTimeLow();
+#endif
+    OotPspAudioBackend_SetDiagnosticProducerState(OOT_PSP_AUDIO_PRODUCER_STATE_SEQUENCE);
+    AudioSynth_ProcessSequenceControl();
+#if defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS
+    profileAfterSequenceUsec = sceKernelGetSystemTimeLow();
+#endif
+    gAudioCtx.curAbiCmdBuf = AudioSynth_BuildCommandList(
+        abiCmdStart, &numAbiCmds, curAiBuffer, gAudioCtx.numSamplesPerFrame[index]);
+#if defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS
+    profileAfterBuildUsec = sceKernelGetSystemTimeLow();
+    OotPspAudioBackend_RecordSynthesisProfile(
+        profileAfterSequenceUsec - profileBeforeSequenceUsec,
+        profileAfterBuildUsec - profileAfterSequenceUsec);
+#endif
+    OotPspAudioBackend_SetDiagnosticProducerState(OOT_PSP_AUDIO_PRODUCER_STATE_SUBMIT);
+    OotPspAudioBackend_SubmitCommandsAndQueue(
+        abiCmdStart, numAbiCmds, curAiBuffer,
+        2U * (u32)gAudioCtx.numSamplesPerFrame[index] * (u32)SAMPLE_SIZE);
+#if defined(OOTDEBUG) || OOT_PSP_AUDIO_DIAGNOSTICS
+    profileEndUsec = sceKernelGetSystemTimeLow();
+    OotPspAudioBackend_RecordUpdateProfile(
+        profileAfterWaitUsec - profileStartUsec,
+        profileBeforeSequenceUsec - profileAfterWaitUsec,
+        profileAfterBuildUsec - profileBeforeSequenceUsec,
+        profileEndUsec - profileAfterBuildUsec, (u32)numAbiCmds,
+        (u32)gAudioCtx.curAudioFrameDmaCount);
+#endif
+#else
     gAudioCtx.curAbiCmdBuf =
         AudioSynth_Update(gAudioCtx.curAbiCmdBuf, &numAbiCmds, curAiBuffer, gAudioCtx.numSamplesPerFrame[index]);
+#endif
 
     // Update audioRandom to the next random number
     gAudioCtx.audioRandom = (gAudioCtx.audioRandom + gAudioCtx.totalTaskCount) * osGetCount();
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* The ME still owns the just-submitted output buffer. Use stable update
+     * metadata for entropy rather than reading PCM before completion. */
+    gAudioCtx.audioRandom += ((u32)numAbiCmds << 16) ^ (u16)gAudioCtx.numSamplesPerFrame[index];
+#else
     gAudioCtx.audioRandom = gAudioCtx.audioRandom + gAudioCtx.aiBuffers[index][gAudioCtx.totalTaskCount & 0xFF];
+#endif
 
     // gWaveSamples[8] interprets compiled assembly code as s16 samples as a way to generate sound with noise.
     // Start with the address of AudioThread_Update(), and offset it by a random number between 0 - 0xFFF0
@@ -391,7 +463,17 @@ void AudioThread_InitMesgQueuesInternal(void) {
 void AudioThread_QueueCmd(u32 opArgs, void** data) {
     AudioCmd* cmd = &gAudioCtx.threadCmdBuf[gAudioCtx.threadCmdWritePos & 0xFF];
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* AUDIO_MK_CMD keeps the N64's big-endian byte order in the packed u32.
+     * AudioCmd exposes those bytes through a struct, so assigning opArgs
+     * directly reverses op/arg0/arg1/arg2 on the little-endian PSP. */
+    cmd->op = (opArgs >> 24) & 0xFF;
+    cmd->arg0 = (opArgs >> 16) & 0xFF;
+    cmd->arg1 = (opArgs >> 8) & 0xFF;
+    cmd->arg2 = opArgs & 0xFF;
+#else
     cmd->opArgs = opArgs;
+#endif
     cmd->data = *data;
 
     gAudioCtx.threadCmdWritePos++;
@@ -410,13 +492,21 @@ void AudioThread_QueueCmdS32(u32 opArgs, s32 data) {
 }
 
 void AudioThread_QueueCmdS8(u32 opArgs, s8 data) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    u32 uData = (u8)data;
+#else
     u32 uData = data << 0x18;
+#endif
 
     AudioThread_QueueCmd(opArgs, (void**)&uData);
 }
 
 void AudioThread_QueueCmdU16(u32 opArgs, u16 data) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    u32 uData = data;
+#else
     u32 uData = data << 0x10;
+#endif
 
     AudioThread_QueueCmd(opArgs, (void**)&uData);
 }
@@ -607,11 +697,32 @@ s8 AudioThread_GetSeqPlayerIO(s32 seqPlayerIndex, s32 ioPort) {
 
 // Unused
 void AudioThread_InitExternalPool(void* addr, size_t size) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    sMmPspAudioExternalPoolAddress = addr;
+    sMmPspAudioExternalPoolSize = size;
+#endif
     AudioHeap_InitPool(&gAudioCtx.externalPool, addr, size);
+}
+
+void AudioThread_ApplyExternalPool(void) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    if ((sMmPspAudioExternalPoolAddress != NULL) && (sMmPspAudioExternalPoolSize != 0)) {
+        AudioHeap_InitPool(&gAudioCtx.externalPool, sMmPspAudioExternalPoolAddress,
+                           sMmPspAudioExternalPoolSize);
+    } else {
+        gAudioCtx.externalPool.startAddr = NULL;
+    }
+#else
+    gAudioCtx.externalPool.startAddr = NULL;
+#endif
 }
 
 // Unused
 void AudioThread_ResetExternalPool(void) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    sMmPspAudioExternalPoolAddress = NULL;
+    sMmPspAudioExternalPoolSize = 0;
+#endif
     gAudioCtx.externalPool.startAddr = NULL;
 }
 

@@ -19,6 +19,15 @@ typedef struct {
 
 CmpDmaBuffer sDmaBuffer;
 
+static u32 CmpDma_ArchiveWordToNative(u32 value) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    return ((value & 0x000000FFU) << 24) | ((value & 0x0000FF00U) << 8) |
+           ((value & 0x00FF0000U) >> 8) | ((value & 0xFF000000U) >> 24);
+#else
+    return value;
+#endif
+}
+
 void func_80178AC0(u16* src, void* dst, size_t size) {
     Color_RGBA8_u32 spC;
     Color_RGBA16_2 tc;
@@ -53,7 +62,7 @@ void CmpDma_GetFileInfo(uintptr_t segmentRom, s32 id, uintptr_t* outFileRom, siz
 
     DmaMgr_DmaRomToRam(segmentRom, &sDmaBuffer.dataStart, sizeof(sDmaBuffer.dataStart));
 
-    dataStart = sDmaBuffer.dataStart;
+    dataStart = CmpDma_ArchiveWordToNative(sDmaBuffer.dataStart);
     refOff = id * sizeof(u32);
 
     // if id is >= idMax
@@ -64,10 +73,12 @@ void CmpDma_GetFileInfo(uintptr_t segmentRom, s32 id, uintptr_t* outFileRom, siz
         // get offset start of next file, i.e. size of first file
         DmaMgr_DmaRomToRam(segmentRom + sizeof(u32), &sDmaBuffer.dataSize, sizeof(sDmaBuffer.dataSize));
         *outFileRom = segmentRom + dataStart;
-        *size = sDmaBuffer.dataSize;
+        *size = CmpDma_ArchiveWordToNative(sDmaBuffer.dataSize);
     } else {
         // get offset start, end from dataStart
         DmaMgr_DmaRomToRam(refOff + segmentRom, &sDmaBuffer.offset, sizeof(sDmaBuffer.offset));
+        sDmaBuffer.offset.start = CmpDma_ArchiveWordToNative(sDmaBuffer.offset.start);
+        sDmaBuffer.offset.end = CmpDma_ArchiveWordToNative(sDmaBuffer.offset.end);
         *outFileRom = sDmaBuffer.offset.start + segmentRom + dataStart;
         *size = sDmaBuffer.offset.end - sDmaBuffer.offset.start;
     }
@@ -110,7 +121,7 @@ void CmpDma_LoadAllFiles(uintptr_t segmentVrom, void* dst, size_t size) {
 
     DmaMgr_DmaRomToRam(rom, &sDmaBuffer.dataStart, sizeof(sDmaBuffer.dataStart));
 
-    dataStart = sDmaBuffer.dataStart;
+    dataStart = CmpDma_ArchiveWordToNative(sDmaBuffer.dataStart);
     nextDst = dst;
     end = (dataStart / sizeof(u32)) - 1;
 

@@ -1,4 +1,8 @@
 #include "global.h"
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_asset_loader.h"
+void OotPsp_ResolveRoomList(RomFile* roomFiles, s32 count);
+#endif
 
 /**
  * Spawn an object file of a specified ID that will persist through room changes.
@@ -222,6 +226,9 @@ void Scene_CommandCollisionHeader(PlayState* play, SceneCmd* cmd) {
 void Scene_CommandRoomList(PlayState* play, SceneCmd* cmd) {
     play->roomList.count = cmd->roomList.num;
     play->roomList.romFiles = Lib_SegmentedToVirtual(cmd->roomList.segment);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    OotPsp_ResolveRoomList(play->roomList.romFiles, play->roomList.count);
+#endif
 }
 
 // SceneTableEntry Header Command 0x06: Entrance List

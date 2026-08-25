@@ -1,6 +1,10 @@
 #ifndef LIBC_STDLIB_H
 #define LIBC_STDLIB_H
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include_next <stdlib.h>
+#else
+
 #include "stddef.h"
 
 typedef struct {
@@ -24,5 +28,7 @@ typedef long wchar_t;
 
 ldiv_t ldiv(long numer, long denom);
 lldiv_t lldiv(long long numer, long long denom);
+
+#endif /* TARGET_PSP || PLATFORM_PSP */
 
 #endif /* STDLIB_H */

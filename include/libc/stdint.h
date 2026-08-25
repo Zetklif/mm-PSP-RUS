@@ -1,6 +1,10 @@
 #ifndef LIBC_STDINT_H
 #define LIBC_STDINT_H
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include_next <stdint.h>
+#else
+
 typedef signed long intptr_t;
 typedef unsigned long uintptr_t;
 
@@ -23,5 +27,6 @@ typedef unsigned long uintptr_t;
 #define INTPTR_MAX  0x7FFFFFFF
 #define UINTPTR_MAX 0xFFFFFFFF
 
+#endif /* TARGET_PSP || PLATFORM_PSP */
 
 #endif /* STDINT_H */

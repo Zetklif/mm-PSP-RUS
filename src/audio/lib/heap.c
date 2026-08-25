@@ -13,6 +13,9 @@ void AudioHeap_DiscardSampleBank(s32 sampleBankId);
 void AudioHeap_ApplySampleBankCacheInternal(s32 apply, s32 sampleBankId);
 void AudioHeap_DiscardSampleBanks(void);
 void AudioHeap_InitReverb(s32 reverbIndex, ReverbSettings* settings, s32 isFirstInit);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+void AudioThread_ApplyExternalPool(void);
+#endif
 
 #define gTatumsPerBeat (gAudioTatumInit[1])
 
@@ -127,8 +130,16 @@ void* AudioHeap_WritebackDCache(void* addr, size_t size) {
     Audio_WritebackDCache(addr, size);
     if (addr) {}
 
+#if defined(TARGET_PSP)
+    /* Allegrex uses native user-space pointers here. MM's N64 path changes a
+     * KSEG0 pointer to its KSEG1 alias, but applying those wrapping N64 macros
+     * to a PSP address turns e.g. 0x09047252 into invalid 0x29047252. Cache
+     * writeback above is sufficient for the PSP audio backend. */
+    return addr;
+#else
     // KSEG0 to KSEG1 (ensures data is written straight to ram instead of the data cache)
     return OS_PHYSICAL_TO_K1(OS_K0_TO_PHYSICAL(addr));
+#endif
 }
 
 /**
@@ -321,7 +332,14 @@ void AudioHeap_InitMainPool(size_t initPoolSize) {
     AudioHeap_InitPool(&gAudioCtx.sessionPool, gAudioCtx.audioHeap + initPoolSize,
                        gAudioCtx.audioHeapSize - initPoolSize);
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* The PSP backend registers its expansion pool before Audio_Init, whose
+     * context clear also wipes externalPool. Restore the saved registration
+     * here, matching the working OoT PSP audio initialization. */
+    AudioThread_ApplyExternalPool();
+#else
     gAudioCtx.externalPool.startAddr = NULL;
+#endif
 }
 
 void AudioHeap_InitSessionPool(AudioSessionPoolSplit* split) {

@@ -72,6 +72,15 @@ typedef struct {
     /* 0xC */ u32 uncompDataOffset; // only used in mio0
 } Yaz0Header;                       // size = 0x10
 
+static u32 Yaz0_HeaderWordToNative(u32 value) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    return ((value & 0x000000FFU) << 24) | ((value & 0x0000FF00U) << 8) |
+           ((value & 0x00FF0000U) >> 8) | ((value & 0xFF000000U) >> 24);
+#else
+    return value;
+#endif
+}
+
 s32 Yaz0_DecompressImpl(u8* src, u8* dst) {
     u32 bitIndex = 0;
     u8* dstEnd;
@@ -80,13 +89,13 @@ s32 Yaz0_DecompressImpl(u8* src, u8* dst) {
     u8* backPtr;
     size_t chunkSize;
     u32 off;
-    u32 magic = ((Yaz0Header*)src)->magic;
+    u32 magic = Yaz0_HeaderWordToNative(((Yaz0Header*)src)->magic);
 
     if (magic != YAZ0_MAGIC) {
         return -1;
     }
 
-    dstEnd = dst + ((Yaz0Header*)src)->decSize;
+    dstEnd = dst + Yaz0_HeaderWordToNative(((Yaz0Header*)src)->decSize);
     src += sizeof(Yaz0Header);
 
     do {

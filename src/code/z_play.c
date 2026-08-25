@@ -21,6 +21,9 @@ u8 sMotionBlurStatus;
 #include "regs.h"
 #include "sys_cfb.h"
 #include "attributes.h"
+#if PLATFORM_PSP
+#include "oot_psp_gfx_ext.h"
+#endif
 
 #include "z64bombers_notebook.h"
 #include "z64debug_display.h"
@@ -77,6 +80,20 @@ void Play_DrawMotionBlur(PlayState* this) {
 
         gSPDisplayList(OVERLAY_DISP++, gfx);
 
+#if PLATFORM_PSP
+        /* The CPU color framebuffer is not the GU draw buffer.  Preserve the
+         * original display-list position and alpha, but have the PSP renderer
+         * blend and recapture its native widescreen framebuffer directly. */
+        gDPPipeSync(gfx++);
+        gDPSetPrimColor(gfx++, 0, 0, MM_PSP_MOTION_BLUR_PRIM_R, MM_PSP_MOTION_BLUR_PRIM_G,
+                        MM_PSP_MOTION_BLUR_PRIM_B, alpha);
+        gDPSetEnvColor(gfx++, MM_PSP_MOTION_BLUR_ENV_R, MM_PSP_MOTION_BLUR_ENV_G,
+                       (sMotionBlurStatus == MOTION_BLUR_SETUP) ? MM_PSP_MOTION_BLUR_RESET : 0, 0);
+        gOotPspApplyVisMono(gfx++);
+        gDPPipeSync(gfx++);
+
+        sMotionBlurStatus = MOTION_BLUR_PROCESS;
+#else
         this->pauseBgPreRender.fbuf = gfxCtx->curFrameBuffer;
         this->pauseBgPreRender.fbufSave = this->unk_18E64;
 
@@ -87,6 +104,7 @@ void Play_DrawMotionBlur(PlayState* this) {
         }
 
         PreRender_SaveFramebuffer(&this->pauseBgPreRender, &gfx);
+#endif
 
         gSPEndDisplayList(gfx++);
 

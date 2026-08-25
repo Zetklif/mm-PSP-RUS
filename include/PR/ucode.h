@@ -11,6 +11,12 @@
 #define SP_UCODE_DATA_SIZE 0x800
 
 extern u64 rspbootTextStart[];
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+extern u64 njpgdspMainTextStart[];
+extern u64 njpgdspMainTextEnd[];
+extern u64 njpgdspMainDataStart[];
+extern u64 njpgdspMainDataEnd[];
+#endif
 extern u64 rspbootTextEnd[];
 
 extern u64 cic6105TextStart[];

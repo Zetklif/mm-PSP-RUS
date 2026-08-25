@@ -71,7 +71,11 @@ typedef struct OSThread {
     /* 0x20 */ __OSThreadContext context;
 } OSThread; // size = 0x1B0
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+void osCreateThread(OSThread* thread, OSId id, void (*entry)(void*), void* arg, void* sp, OSPri p);
+#else
 void osCreateThread(OSThread* thread, OSId id, void* entry, void* arg, void* sp, OSPri p);
+#endif
 void osDestroyThread(OSThread* t);
 void osYieldThread(void);
 void osStartThread(OSThread* t);

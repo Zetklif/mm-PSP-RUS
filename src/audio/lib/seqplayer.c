@@ -293,6 +293,9 @@ void AudioScript_InitSequenceChannel(SequenceChannel* channel) {
     channel->adsr.envelope = gDefaultEnvelope;
     channel->adsr.decayIndex = 0xF0;
     channel->adsr.sustain = 0;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    channel->adsr.envelopeBigEndian = false;
+#endif
     channel->vibrato.vibratoRateTarget = 0x800;
     channel->vibrato.vibratoRateStart = 0x800;
     channel->vibrato.vibratoDepthTarget = 0;
@@ -527,6 +530,10 @@ void AudioScript_InitLayerFreelist(void) {
 
 u8 AudioScript_ScriptReadU8(SeqScriptState* state) {
     return *(state->pc++);
+}
+
+static u16 AudioScript_ReadU16(const u8* ptr) {
+    return ((u16)ptr[0] << 8) | ptr[1];
 }
 
 s16 AudioScript_ScriptReadS16(SeqScriptState* state) {
@@ -765,6 +772,9 @@ s32 AudioScript_SeqLayerProcessScriptStep2(SequenceLayer* layer) {
             case ASEQ_OP_LAYER_ENV: // layer: set envelope and decay index
                 cmdArg16 = AudioScript_ScriptReadS16(state);
                 layer->adsr.envelope = (EnvelopePoint*)(seqPlayer->seqData + cmdArg16);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                layer->adsr.envelopeBigEndian = true;
+#endif
                 FALLTHROUGH;
             case ASEQ_OP_LAYER_RELEASERATE: // layer: set decay index
                 layer->adsr.decayIndex = AudioScript_ScriptReadU8(state);
@@ -858,6 +868,9 @@ s32 AudioScript_SeqLayerProcessScriptStep4(SequenceLayer* layer, s32 cmd) {
             tunedSample = &drum->tunedSample;
             layer->adsr.envelope = drum->envelope;
             layer->adsr.decayIndex = drum->adsrDecayIndex;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            layer->adsr.envelopeBigEndian = false;
+#endif
             if (!layer->ignoreDrumPan) {
                 layer->pan = drum->pan;
             }
@@ -1153,6 +1166,9 @@ u8 AudioScript_GetInstrument(SequenceChannel* channel, u8 instId, Instrument** i
 
     adsr->envelope = inst->envelope;
     adsr->decayIndex = inst->adsrDecayIndex;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    adsr->envelopeBigEndian = false;
+#endif
 
     *instOut = inst;
 
@@ -1367,6 +1383,9 @@ void AudioScript_SequenceChannelProcessScript(SequenceChannel* channel) {
                 case ASEQ_OP_CHAN_ENV: // channel: set envelope
                     cmdArgU16 = (u16)cmdArgs[0];
                     channel->adsr.envelope = (EnvelopePoint*)&seqPlayer->seqData[cmdArgU16];
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                    channel->adsr.envelopeBigEndian = true;
+#endif
                     break;
 
                 case ASEQ_OP_CHAN_RELEASERATE: // channel: set decay index
@@ -1601,7 +1620,8 @@ void AudioScript_SequenceChannelProcessScript(SequenceChannel* channel) {
 
                 case ASEQ_OP_CHAN_LDSEQTOPTR: // channel: dynread sequence large
                     cmdArgU16 = (u16)cmdArgs[0];
-                    channel->unk_22 = *(u16*)(seqPlayer->seqData + (u32)(cmdArgU16 + scriptState->value * 2));
+                    channel->unk_22 =
+                        AudioScript_ReadU16(seqPlayer->seqData + (u32)(cmdArgU16 + scriptState->value * 2));
                     break;
 
                 case ASEQ_OP_CHAN_PTRTODYNTBL: // channel: set dyntable large
@@ -1609,7 +1629,7 @@ void AudioScript_SequenceChannelProcessScript(SequenceChannel* channel) {
                     break;
 
                 case ASEQ_OP_CHAN_DYNTBLTOPTR: // channel: read dyntable large
-                    channel->unk_22 = ((u16*)(channel->dynTable))[scriptState->value];
+                    channel->unk_22 = AudioScript_ReadU16((u8*)channel->dynTable + scriptState->value * 2);
                     break;
 
                 case ASEQ_OP_CHAN_DYNTBLV: // channel: read dyntable
@@ -1846,7 +1866,6 @@ void AudioScript_SequencePlayerProcessSequence(SequencePlayer* seqPlayer) {
     s32 tempoChange;
     s32 j;
     SequenceChannel* channel;
-    u16* new_var;
     s32 delay;
 
     if (!seqPlayer->enabled) {
@@ -2111,8 +2130,7 @@ void AudioScript_SequencePlayerProcessSequence(SequencePlayer* seqPlayer) {
                     case ASEQ_OP_SEQ_C3: // seqPlayer:
                         temp = AudioScript_ScriptReadS16(seqScript);
                         if (seqScript->value != -1) {
-                            new_var = (u16*)(seqPlayer->seqData + (u32)(temp + seqScript->value * 2));
-                            temp = *new_var;
+                            temp = AudioScript_ReadU16(seqPlayer->seqData + (u32)(temp + seqScript->value * 2));
 
                             for (i = 0; i < ARRAY_COUNT(seqPlayer->channels); i++) {
                                 seqPlayer->channels[i]->muted = temp & 1;

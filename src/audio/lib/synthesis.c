@@ -1,5 +1,8 @@
 #include "global.h"
 #include "audio/synthesis.h"
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_asset_loader.h"
+#endif
 
 // DMEM Addresses for the RSP
 #define DMEM_TEMP 0x3B0
@@ -214,7 +217,21 @@ void AudioSynth_SyncSampleStates(s32 updateIndex) {
     }
 }
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+void AudioSynth_ProcessSequenceControl(void) {
+    s32 reverseUpdateIndex;
+
+    for (reverseUpdateIndex = gAudioCtx.audioBufferParameters.updatesPerFrame; reverseUpdateIndex > 0;
+         reverseUpdateIndex--) {
+        AudioScript_ProcessSequences(reverseUpdateIndex - 1);
+        AudioSynth_SyncSampleStates(gAudioCtx.audioBufferParameters.updatesPerFrame - reverseUpdateIndex);
+    }
+}
+
+Acmd* AudioSynth_BuildCommandList(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32 numSamplesPerFrame) {
+#else
 Acmd* AudioSynth_Update(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32 numSamplesPerFrame) {
+#endif
     s32 numSamplesPerUpdate;
     s16* curAiBufPos;
     Acmd* curCmd = abiCmdStart;
@@ -222,11 +239,13 @@ Acmd* AudioSynth_Update(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32
     s32 reverbIndex;
     SynthesisReverb* reverb;
 
+#if !defined(TARGET_PSP) && !defined(PLATFORM_PSP)
     for (reverseUpdateIndex = gAudioCtx.audioBufferParameters.updatesPerFrame; reverseUpdateIndex > 0;
          reverseUpdateIndex--) {
         AudioScript_ProcessSequences(reverseUpdateIndex - 1);
         AudioSynth_SyncSampleStates(gAudioCtx.audioBufferParameters.updatesPerFrame - reverseUpdateIndex);
     }
+#endif
 
     curAiBufPos = aiBufStart;
     gAudioCtx.adpcmCodeBook = NULL;
@@ -273,6 +292,41 @@ Acmd* AudioSynth_Update(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32
     return curCmd;
 }
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+Acmd* AudioSynth_Update(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart, s32 numSamplesPerFrame) {
+    AudioSynth_ProcessSequenceControl();
+    return AudioSynth_BuildCommandList(abiCmdStart, numAbiCmds, aiBufStart, numSamplesPerFrame);
+}
+
+Acmd* AudioSynth_BuildCommandListMe(Acmd* abiCmdStart, s32* numAbiCmds, s16* aiBufStart,
+                                     s32 numSamplesPerFrame) {
+    return AudioSynth_BuildCommandList(abiCmdStart, numAbiCmds, aiBufStart, numSamplesPerFrame);
+}
+
+s32 AudioSynth_CanBuildCommandsOnMe(void) {
+    /* MM starts on Allegrex; ME command construction can be enabled after the
+     * MM-specific synthesis state cache ranges have been audited. */
+    return false;
+}
+
+void OotPspAudioSynth_WritebackMeState(void) {
+}
+
+void OotPspAudioSynth_MeInvalidateState(void) {
+}
+
+void OotPspAudioSynth_MeWritebackState(void) {
+}
+
+void OotPspAudioSynth_InvalidateMeState(void) {
+}
+
+void OotPspAudioSynth_PublishMeAssetRange(const void* address, u32 size) {
+    (void)address;
+    (void)size;
+}
+#endif
+
 void AudioSynth_DisableSampleStates(s32 updateIndex, s32 noteIndex) {
     NoteSampleState* sampleState;
     s32 i;
@@ -285,6 +339,78 @@ void AudioSynth_DisableSampleStates(s32 updateIndex, s32 noteIndex) {
         sampleState->bitField0.enabled = false;
     }
 }
+
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+static u8 sMmPspAudioBadSynthSampleLogged;
+
+static s32 MmPspAudioSynth_IsAlignedNativePtr(const void* address) {
+    uintptr_t value = (uintptr_t)address;
+
+    return (value >= 0x08000000U) && (value < 0x0C000000U) && ((value & 3) == 0);
+}
+
+static s32 MmPspAudioSynth_HasResidentSampleBank(void) {
+    AudioTable* table = gAudioCtx.sampleBankTable;
+    s32 i;
+
+    if (!MmPspAudioSynth_IsAlignedNativePtr(table)) {
+        return false;
+    }
+    for (i = 0; i < table->header.numEntries; i++) {
+        AudioTableEntry* entry = &table->entries[i];
+
+        if ((entry->size != 0) && (OotPsp_GetCachedAssetPointer(entry->romAddr, entry->size) != NULL)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static s32 MmPspAudioSynth_IsExternalVromRange(uintptr_t address, size_t size) {
+    uintptr_t normalized;
+    uintptr_t end;
+    size_t i;
+
+    if ((size == 0) || (address > (UINTPTR_MAX - size))) {
+        return false;
+    }
+    normalized = OotPsp_NormalizeVrom(address);
+    end = normalized + size;
+    for (i = 0; i < gOotPspExternalAssetCount; i++) {
+        const OotPspExternalAsset* asset = &gOotPspExternalAssets[i];
+
+        if ((normalized >= asset->vromStart) && (normalized < asset->vromEnd) && (end <= asset->vromEnd)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Acmd* MmPspAudioSynth_DropBadSample(Acmd* cmd, s32 updateIndex, s32 noteIndex,
+                                           NoteSampleState* sampleState, Note* note, const char* reason,
+                                           TunedSample* tunedSample, Sample* sample) {
+    if (!sMmPspAudioBadSynthSampleLogged) {
+        sMmPspAudioBadSynthSampleLogged = true;
+        if (MmPspAudioSynth_IsAlignedNativePtr(sample)) {
+            osSyncPrintf("mm-psp audio dropped bad synth sample reason=%s note=%ld tuned=%p sample=%p "
+                         "codec=%lu medium=%lu addr=%p loop=%p book=%p size=%lu\n",
+                         reason, (long)noteIndex, tunedSample, sample, (unsigned long)sample->codec,
+                         (unsigned long)sample->medium, sample->sampleAddr, sample->loop, sample->book,
+                         (unsigned long)sample->size);
+        } else {
+            osSyncPrintf("mm-psp audio dropped bad synth sample reason=%s note=%ld tuned=%p sample=%p\n",
+                         reason, (long)noteIndex, tunedSample, sample);
+        }
+    }
+
+    sampleState->bitField0.enabled = false;
+    sampleState->bitField0.finished = true;
+    note->sampleState.bitField0.enabled = false;
+    note->sampleState.bitField0.finished = true;
+    AudioSynth_DisableSampleStates(updateIndex, noteIndex);
+    return cmd;
+}
+#endif
 
 /**
  * Load reverb samples from a different reverb index
@@ -978,8 +1104,36 @@ Acmd* AudioSynth_ProcessSample(s32 noteIndex, NoteSampleState* sampleState, Note
         sampleDmemBeforeResampling = DMEM_UNCOMPRESSED_NOTE + (synthState->samplePosInt * 2);
         synthState->samplePosInt += numSamplesToLoad;
     } else {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        if ((sampleState->tunedSample == NULL) ||
+            !MmPspAudioSynth_IsAlignedNativePtr(sampleState->tunedSample)) {
+            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note, "tuned",
+                                                 sampleState->tunedSample, NULL);
+        }
+        if ((sampleState->tunedSample->sample == NULL) ||
+            !MmPspAudioSynth_IsAlignedNativePtr(sampleState->tunedSample->sample)) {
+            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note, "sample",
+                                                 sampleState->tunedSample, sampleState->tunedSample->sample);
+        }
+#endif
         sample = sampleState->tunedSample->sample;
         loopInfo = sample->loop;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        if (!MmPspAudioSynth_IsAlignedNativePtr(loopInfo) || (sample->codec > CODEC_UNK7) ||
+            (((sample->codec == CODEC_ADPCM) || (sample->codec == CODEC_SMALL_ADPCM)) &&
+             !MmPspAudioSynth_IsAlignedNativePtr(sample->book))) {
+            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note, "fields",
+                                                 sampleState->tunedSample, sample);
+        }
+        if ((sample->medium == MEDIUM_RAM) && !MmPspAudioSynth_IsAlignedNativePtr(sample->sampleAddr)) {
+            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note, "ram-address",
+                                                 sampleState->tunedSample, sample);
+        }
+        if ((sample->medium != MEDIUM_RAM) && MmPspAudioSynth_HasResidentSampleBank()) {
+            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note,
+                                                 "nonresident-with-audiotable", sampleState->tunedSample, sample);
+        }
+#endif
 
         if (note->playbackState.status != PLAYBACK_STATUS_0) {
             synthState->stopLoop = true;
@@ -1170,6 +1324,16 @@ Acmd* AudioSynth_ProcessSample(s32 noteIndex, NoteSampleState* sampleState, Note
                         return cmd;
                     } else {
                         // This medium is not in ram, so dma the requested sample into ram
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                        uintptr_t sampleVrom = (uintptr_t)(sampleAddr + (zeroOffset + sampleAddrOffset));
+                        size_t sampleReadSize = ALIGN16((numFramesToDecode * frameSize) + SAMPLES_PER_FRAME);
+
+                        if (!MmPspAudioSynth_IsExternalVromRange(sampleVrom, sampleReadSize)) {
+                            return MmPspAudioSynth_DropBadSample(cmd, updateIndex, noteIndex, sampleState, note,
+                                                                 "invalid-dma-range", sampleState->tunedSample,
+                                                                 sample);
+                        }
+#endif
                         samplesToLoadAddr =
                             AudioLoad_DmaSampleData((uintptr_t)(sampleAddr + (zeroOffset + sampleAddrOffset)),
                                                     ALIGN16((numFramesToDecode * frameSize) + SAMPLES_PER_FRAME), flags,

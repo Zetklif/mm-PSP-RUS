@@ -14,6 +14,9 @@
 #include "audio/load.h"
 #include "buffers.h"
 #include "attributes.h"
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include "oot_psp_asset_loader.h"
+#endif
 
 /**
  * SoundFont Notes:
@@ -96,6 +99,188 @@ s32 D_801FD1E0;
 DmaHandler sDmaHandler = osEPiStartDma;
 void* sUnusedHandler = NULL;
 s32 gAudioCtxInitialized = false;
+
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#define MM_PSP_AUDIO_SWAP_CACHE_SIZE 4096
+
+static void* sMmPspAudioSwapCache[MM_PSP_AUDIO_SWAP_CACHE_SIZE];
+static u32 sMmPspAudioSwapCacheCount;
+static u32 sMmPspAudioResidentBankLogMask;
+static u32 sMmPspAudioResidentBankMissLogMask;
+static u8 sMmPspAudioInvalidDmaLogged;
+
+static s32 MmPspAudio_IsAlignedNativePtr(const void* address) {
+    uintptr_t value = (uintptr_t)address;
+
+    return (value >= 0x08000000U) && (value < 0x0C000000U) && ((value & 3) == 0);
+}
+
+static void* MmPspAudio_GetResidentSampleBank(u32 sampleBankId) {
+    AudioTable* table = gAudioCtx.sampleBankTable;
+    AudioTableEntry* entry;
+    void* address;
+
+    if (!MmPspAudio_IsAlignedNativePtr(table) || (sampleBankId >= (u32)table->header.numEntries)) {
+        return NULL;
+    }
+
+    entry = &table->entries[sampleBankId];
+    if (entry->size == 0) {
+        return NULL;
+    }
+
+    address = (void*)OotPsp_GetCachedAssetPointer(entry->romAddr, entry->size);
+    if ((address != NULL) && (sampleBankId < 32) &&
+        !(sMmPspAudioResidentBankLogMask & (1U << sampleBankId))) {
+        sMmPspAudioResidentBankLogMask |= 1U << sampleBankId;
+        osSyncPrintf("mm-psp audio resident sample bank id=%lu addr=%p size=%lu\n",
+                     (unsigned long)sampleBankId, address, (unsigned long)entry->size);
+    } else if ((address == NULL) && (sampleBankId < 32) &&
+               !(sMmPspAudioResidentBankMissLogMask & (1U << sampleBankId))) {
+        sMmPspAudioResidentBankMissLogMask |= 1U << sampleBankId;
+        osSyncPrintf("mm-psp audio resident sample bank miss id=%lu vrom=%08lx size=%lu\n",
+                     (unsigned long)sampleBankId, (unsigned long)entry->romAddr, (unsigned long)entry->size);
+    }
+    return address;
+}
+
+static u16 MmPspAudio_Bswap16(u16 value) {
+    return (value << 8) | (value >> 8);
+}
+
+static u32 MmPspAudio_Bswap32(u32 value) {
+    return ((value & 0x000000FFU) << 24) | ((value & 0x0000FF00U) << 8) |
+           ((value & 0x00FF0000U) >> 8) | ((value & 0xFF000000U) >> 24);
+}
+
+static s16 MmPspAudio_BswapS16(s16 value) {
+    return (s16)MmPspAudio_Bswap16((u16)value);
+}
+
+static u32 MmPspAudio_ReadBE32(const void* address) {
+    return MmPspAudio_Bswap32(*(const u32*)address);
+}
+
+static f32 MmPspAudio_BswapF32(f32 value) {
+    union {
+        u32 word;
+        f32 number;
+    } bits;
+
+    bits.number = value;
+    bits.word = MmPspAudio_Bswap32(bits.word);
+    return bits.number;
+}
+
+static void MmPspAudio_ResetSwapCache(void) {
+    sMmPspAudioSwapCacheCount = 0;
+}
+
+static s32 MmPspAudio_MarkConverted(void* address) {
+    u32 i;
+
+    if (address == NULL) {
+        return false;
+    }
+    for (i = 0; i < sMmPspAudioSwapCacheCount; i++) {
+        if (sMmPspAudioSwapCache[i] == address) {
+            return false;
+        }
+    }
+    if (sMmPspAudioSwapCacheCount < ARRAY_COUNTU(sMmPspAudioSwapCache)) {
+        sMmPspAudioSwapCache[sMmPspAudioSwapCacheCount++] = address;
+    }
+    return true;
+}
+
+static void MmPspAudio_SwapEnvelope(EnvelopePoint* envelope) {
+    s32 i;
+
+    if (!MmPspAudio_MarkConverted(envelope)) {
+        return;
+    }
+    for (i = 0; i < 256; i++) {
+        s16 delay = MmPspAudio_BswapS16(envelope[i].delay);
+
+        envelope[i].delay = delay;
+        envelope[i].arg = MmPspAudio_BswapS16(envelope[i].arg);
+        if ((delay == ADSR_DISABLE) || (delay == ADSR_HANG)) {
+            break;
+        }
+    }
+}
+
+static void MmPspAudio_SwapLoop(AdpcmLoop* loop) {
+    s32 i;
+
+    if (!MmPspAudio_MarkConverted(loop)) {
+        return;
+    }
+    loop->header.start = MmPspAudio_Bswap32(loop->header.start);
+    loop->header.loopEnd = MmPspAudio_Bswap32(loop->header.loopEnd);
+    loop->header.count = MmPspAudio_Bswap32(loop->header.count);
+    loop->header.sampleEnd = MmPspAudio_Bswap32(loop->header.sampleEnd);
+    if (loop->header.count != 0) {
+        for (i = 0; i < ARRAY_COUNT(loop->predictorState); i++) {
+            loop->predictorState[i] = MmPspAudio_BswapS16(loop->predictorState[i]);
+        }
+    }
+}
+
+static void MmPspAudio_SwapBook(AdpcmBook* book) {
+    s32 i;
+    s32 count;
+
+    if (!MmPspAudio_MarkConverted(book)) {
+        return;
+    }
+    book->header.order = (s32)MmPspAudio_Bswap32((u32)book->header.order);
+    book->header.numPredictors = (s32)MmPspAudio_Bswap32((u32)book->header.numPredictors);
+    count = 8 * book->header.order * book->header.numPredictors;
+    for (i = 0; i < count; i++) {
+        book->codeBook[i] = MmPspAudio_BswapS16(book->codeBook[i]);
+    }
+}
+
+static void MmPspAudio_SwapSample(Sample* sample) {
+    u32 packed;
+
+    if ((sample == NULL) || !MmPspAudio_MarkConverted(sample)) {
+        return;
+    }
+    packed = MmPspAudio_ReadBE32(sample);
+    sample->unk_0 = (packed >> 31) & 1;
+    sample->codec = (packed >> 28) & 7;
+    sample->medium = (packed >> 26) & 3;
+    sample->unk_bit26 = (packed >> 25) & 1;
+    sample->isRelocated = (packed >> 24) & 1;
+    sample->size = packed & 0xFFFFFF;
+    sample->sampleAddr = (u8*)MmPspAudio_ReadBE32(&sample->sampleAddr);
+    sample->loop = (AdpcmLoop*)MmPspAudio_ReadBE32(&sample->loop);
+    sample->book = (AdpcmBook*)MmPspAudio_ReadBE32(&sample->book);
+}
+
+static void MmPspAudio_SwapTunedSample(TunedSample* tunedSample) {
+    tunedSample->sample = (Sample*)MmPspAudio_ReadBE32(&tunedSample->sample);
+    tunedSample->tuning = MmPspAudio_BswapF32(tunedSample->tuning);
+}
+
+static void MmPspAudio_SwapDrum(Drum* drum) {
+    MmPspAudio_SwapTunedSample(&drum->tunedSample);
+    drum->envelope = (EnvelopePoint*)MmPspAudio_ReadBE32(&drum->envelope);
+}
+
+static void MmPspAudio_SwapSoundEffect(SoundEffect* soundEffect) {
+    MmPspAudio_SwapTunedSample(&soundEffect->tunedSample);
+}
+
+static void MmPspAudio_SwapInstrument(Instrument* instrument) {
+    instrument->envelope = (EnvelopePoint*)MmPspAudio_ReadBE32(&instrument->envelope);
+    MmPspAudio_SwapTunedSample(&instrument->lowPitchTunedSample);
+    MmPspAudio_SwapTunedSample(&instrument->normalPitchTunedSample);
+    MmPspAudio_SwapTunedSample(&instrument->highPitchTunedSample);
+}
+#endif
 
 void AudioLoad_DecreaseSampleDmaTtls(void) {
     u32 i;
@@ -597,13 +782,25 @@ s32 AudioLoad_SyncInitSeqPlayerInternal(s32 playerIndex, s32 seqId, s32 arg2) {
     numFonts = gAudioCtx.sequenceFontTable[index++];
 
     while (numFonts > 0) {
+        SoundFontData* loadedFont;
+
         fontId = gAudioCtx.sequenceFontTable[index++];
-        AudioLoad_SyncLoadFont(fontId);
+        loadedFont = AudioLoad_SyncLoadFont(fontId);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        if (loadedFont == NULL) {
+            osSyncPrintf("mm-psp audio font load failed player=%ld seq=%ld font=%ld\n",
+                         (long)playerIndex, (long)seqId, (long)fontId);
+        }
+#endif
         numFonts--;
     }
 
     seqData = AudioLoad_SyncLoadSeq(seqId);
     if (seqData == NULL) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        osSyncPrintf("mm-psp audio sequence load failed player=%ld seq=%ld font=%ld\n",
+                     (long)playerIndex, (long)seqId, (long)fontId);
+#endif
         return 0;
     }
 
@@ -623,6 +820,10 @@ s32 AudioLoad_SyncInitSeqPlayerInternal(s32 playerIndex, s32 seqId, s32 arg2) {
     seqPlayer->delay = 0;
     seqPlayer->finished = false;
     seqPlayer->playerIndex = playerIndex;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    osSyncPrintf("mm-psp audio sequence ready player=%ld seq=%ld font=%ld data=%p\n",
+                 (long)playerIndex, (long)seqId, (long)fontId, seqData);
+#endif
     //! @bug missing return (but the return value is not used so it's not UB)
 }
 
@@ -648,6 +849,18 @@ uintptr_t AudioLoad_TrySyncLoadSampleBank(u32 sampleBankId, u32* outMedium, s32 
     s8 cachePolicy;
 
     sampleBankTable = AudioLoad_GetLoadTable(SAMPLE_TABLE);
+
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* The shared PSP asset loader pins Audiotable when memory permits.  Use
+     * that resident range directly, exactly as the OoT PSP audio path does.
+     * Samples then remain MEDIUM_RAM and never issue per-note cartridge DMAs. */
+    addr = MmPspAudio_GetResidentSampleBank(realTableId);
+    if (addr != NULL) {
+        AudioLoad_SetSampleFontLoadStatus(realTableId, LOAD_STATUS_COMPLETE);
+        *outMedium = MEDIUM_RAM;
+        return (uintptr_t)addr;
+    }
+#endif
 
     addr = AudioLoad_SearchCaches(SAMPLE_TABLE, realTableId);
     if (addr != NULL) {
@@ -890,13 +1103,22 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
     s32 numSfx = gAudioCtx.soundFontList[fontId].numSfx;
     uintptr_t* fontData = (uintptr_t*)fontDataStartAddr;
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    MmPspAudio_ResetSwapCache();
+#endif
+
     // Relocate an offset (relative to the start of the font data) to a pointer (a ram address)
 #define RELOC_TO_RAM(x) (void*)((uintptr_t)(x) + (uintptr_t)(fontDataStartAddr))
 
     // Drums relocation
 
     // The first u32 in fontData is an offset to a list of offsets to the drums
-    soundListOffset = fontData[0];
+    soundListOffset =
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        MmPspAudio_Bswap32(fontData[0]);
+#else
+        fontData[0];
+#endif
 
     // If the soundFont has drums
     if ((soundListOffset != 0) && (numDrums != 0)) {
@@ -906,7 +1128,12 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
         // Loop through the drum offsets
         for (i = 0; i < numDrums; i++) {
             // Get the i'th drum offset
-            soundOffset = ((Drum**)fontData[0])[i];
+            soundOffset =
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                (void*)MmPspAudio_ReadBE32(&((uintptr_t*)fontData[0])[i]);
+#else
+                ((Drum**)fontData[0])[i];
+#endif
 
             // Some drum data entries are empty, represented by an offset of 0 in the list of drum offsets
             if (soundOffset == NULL) {
@@ -920,10 +1147,16 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
                 continue;
             }
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            MmPspAudio_SwapDrum(drum);
+#endif
             AudioLoad_RelocateSample(&drum->tunedSample, fontDataStartAddr, sampleBankReloc);
 
             soundOffset = drum->envelope;
             drum->envelope = RELOC_TO_RAM(soundOffset);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            MmPspAudio_SwapEnvelope(drum->envelope);
+#endif
 
             drum->isRelocated = true;
         }
@@ -932,7 +1165,12 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
     // Sound effects relocation
 
     // The second u32 in fontData is an offset to the first sound effect entry
-    soundListOffset = fontData[1];
+    soundListOffset =
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        MmPspAudio_Bswap32(fontData[1]);
+#else
+        fontData[1];
+#endif
 
     // If the soundFont has sound effects
     if ((soundListOffset != 0) && (numSfx != 0)) {
@@ -944,6 +1182,9 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
             // Get a pointer to the i'th sound effect
             soundOffset = (TunedSample*)fontData[1] + i;
             soundEffect = (SoundEffect*)soundOffset;
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            MmPspAudio_SwapSoundEffect(soundEffect);
+#endif
 
             // Check for NULL (note: the pointer is guaranteed to be in fontData and can never be NULL)
             if ((soundEffect == NULL) || (soundEffect->tunedSample.sample == NULL)) {
@@ -966,12 +1207,21 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
     // Loop through the instruments
     for (i = 2; i <= 2 + numInstruments - 1; i++) {
         // Some instrument data entries are empty, represented by an offset of 0 in the list of instrument offsets
-        if (fontData[i] != 0) {
-            fontData[i] = (uintptr_t)RELOC_TO_RAM(fontData[i]);
+        soundListOffset =
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            MmPspAudio_Bswap32(fontData[i]);
+#else
+            fontData[i];
+#endif
+        if (soundListOffset != 0) {
+            fontData[i] = (uintptr_t)RELOC_TO_RAM(soundListOffset);
             inst = (Instrument*)fontData[i];
 
             // The instrument may be in the list multiple times and already relocated
             if (!inst->isRelocated) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                MmPspAudio_SwapInstrument(inst);
+#endif
                 // Some instruments have a different sample for low pitches
                 if (inst->normalRangeLo != 0) {
                     AudioLoad_RelocateSample(&inst->lowPitchTunedSample, fontDataStartAddr, sampleBankReloc);
@@ -987,6 +1237,9 @@ void AudioLoad_RelocateFont(s32 fontId, SoundFontData* fontDataStartAddr, Sample
 
                 soundOffset = inst->envelope;
                 inst->envelope = (EnvelopePoint*)RELOC_TO_RAM(soundOffset);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+                MmPspAudio_SwapEnvelope(inst->envelope);
+#endif
 
                 inst->isRelocated = true;
             }
@@ -1055,6 +1308,15 @@ s32 AudioLoad_Dma(OSIoMesg* mesg, u32 priority, s32 direction, uintptr_t devAddr
         size = ALIGN16(size);
     }
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    if (!sMmPspAudioInvalidDmaLogged && (devAddr >= 0x30000000U) && !MmPspAudio_IsAlignedNativePtr((void*)devAddr)) {
+        sMmPspAudioInvalidDmaLogged = true;
+        osSyncPrintf("mm-psp audio invalid dma type=%s dev=%08lx ram=%p size=%lu medium=%ld\n",
+                     dmaFuncType != NULL ? dmaFuncType : "(null)", (unsigned long)devAddr, ramAddr,
+                     (unsigned long)size, (long)medium);
+    }
+#endif
+
     mesg->hdr.pri = priority;
     mesg->hdr.retQueue = reqQueue;
     mesg->dramAddr = ramAddr;
@@ -1105,6 +1367,20 @@ void* AudioLoad_AsyncLoadInner(s32 tableType, s32 id, s32 nChunks, s32 retData, 
             }
             break;
     }
+
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* Async callers must share the same resident-bank fast path as synchronous
+     * font loading; otherwise a later sequence can reintroduce cartridge DMA. */
+    if (tableType == SAMPLE_TABLE) {
+        ramAddr = MmPspAudio_GetResidentSampleBank(realId);
+        if (ramAddr != NULL) {
+            loadStatus = LOAD_STATUS_COMPLETE;
+            AudioLoad_SetSampleFontLoadStatus(realId, loadStatus);
+            osSendMesg(retQueue, (OSMesg)MK_ASYNC_MSG(retData, 0, 0, LOAD_STATUS_NOT_LOADED), OS_MESG_NOBLOCK);
+            return ramAddr;
+        }
+    }
+#endif
 
     ramAddr = AudioLoad_SearchCaches(tableType, realId);
     if (ramAddr != NULL) {
@@ -1246,7 +1522,7 @@ void AudioLoad_Init(void* heap, size_t heapSize) {
 
     // Set all of gAudioCtx to 0
     audioCtxPtr = (u8*)&gAudioCtx;
-    for (j = sizeof(gAudioCtx); j >= 0; j--) {
+    for (j = sizeof(gAudioCtx); j > 0; j--) {
         *audioCtxPtr++ = 0;
     }
 
@@ -1780,18 +2056,29 @@ void AudioLoad_RelocateSample(TunedSample* tunedSample, SoundFontData* fontData,
     Sample* sample;
     void* reloc;
 
+    if ((tunedSample == NULL) || (tunedSample->sample == NULL)) {
+        return;
+    }
+
     // Relocate an offset (relative to data loaded in ram at `base`) to a pointer (a ram address)
 #define AUDIO_RELOC(v, base) (reloc = (void*)((uintptr_t)(v) + (uintptr_t)(base)))
 
     if ((uintptr_t)tunedSample->sample <= AUDIO_RELOCATED_ADDRESS_START) {
 
         sample = tunedSample->sample = AUDIO_RELOC(tunedSample->sample, fontData);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+        MmPspAudio_SwapSample(sample);
+#endif
 
         // If the sample exists and has not already been relocated
         // Note: this is important, as the same sample can be used by different drums, sound effects, instruments
         if ((sample->size != 0) && (sample->isRelocated != true)) {
             sample->loop = AUDIO_RELOC(sample->loop, fontData);
             sample->book = AUDIO_RELOC(sample->book, fontData);
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+            MmPspAudio_SwapLoop(sample->loop);
+            MmPspAudio_SwapBook(sample->book);
+#endif
 
             // Resolve the sample medium 2-bit bitfield into a real value based on sampleBankReloc.
             // Then relocate the offset sample within the sampleBank (not the fontData) into absolute address.

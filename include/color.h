@@ -6,20 +6,26 @@
 // For checking the alpha bit in an RGBA16 pixel
 #define RGBA16_PIXEL_OPAQUE 1
 
-typedef struct {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#define COLOR_TYPE_TAG(name) name
+#else
+#define COLOR_TYPE_TAG(name)
+#endif
+
+typedef struct COLOR_TYPE_TAG(Color_RGB8) {
     /* 0x0 */ u8 r;
     /* 0x1 */ u8 g;
     /* 0x2 */ u8 b;
 } Color_RGB8; // size = 0x3
 
-typedef struct {
+typedef struct COLOR_TYPE_TAG(Color_RGBA8) {
     /* 0x0 */ u8 r;
     /* 0x1 */ u8 g;
     /* 0x2 */ u8 b;
     /* 0x3 */ u8 a;
 } Color_RGBA8; // size = 0x4
 
-typedef struct {
+typedef struct COLOR_TYPE_TAG(Color_RGB16) {
     /* 0x0 */ s16 r;
     /* 0x2 */ s16 g;
     /* 0x4 */ s16 b;
@@ -33,15 +39,15 @@ typedef union Color_RGBA8_u32 {
     u32 rgba;
 } Color_RGBA8_u32;
 
-typedef struct {
+typedef struct COLOR_TYPE_TAG(Color_RGBAf) {
     f32 r, g, b, a;
 } Color_RGBAf;
 
-typedef struct {
+typedef struct COLOR_TYPE_TAG(Color_RGBAu32) {
     u32 r, g, b, a;
 } Color_RGBAu32;
 
-typedef union {
+typedef union COLOR_TYPE_TAG(Color_RGBA16) {
     struct {
         u16 r : 5;
         u16 g : 5;
@@ -51,7 +57,7 @@ typedef union {
     u16 rgba;
 } Color_RGBA16;
 
-typedef union {
+typedef union COLOR_TYPE_TAG(Color_RGBA16_2) {
     struct {
         u32 r : 5;
         u32 g : 5;
@@ -61,7 +67,7 @@ typedef union {
     u16 rgba;
 } Color_RGBA16_2;
 
-typedef union{
+typedef union COLOR_TYPE_TAG(Color_RGBA14) {
     struct {
         u32 r : 3;
         u32 g : 3;
@@ -70,6 +76,8 @@ typedef union{
     };
     u16 rgba;
 } Color_RGBA14;
+
+#undef COLOR_TYPE_TAG
 
 #define RGBA8(r, g, b, a) ((((r) & 0xFF) << 24) | (((g) & 0xFF) << 16) | (((b) & 0xFF) << 8) | (((a) & 0xFF) << 0))
 

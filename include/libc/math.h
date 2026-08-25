@@ -1,6 +1,10 @@
 #ifndef LIBC_MATH_H
 #define LIBC_MATH_H
 
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+#include_next <math.h>
+#else
+
 #define M_PI 3.14159265358979323846
 #define M_PIf 3.14159265358979323846f
 #define M_SQRT2f 1.41421356237309504880f
@@ -19,5 +23,7 @@ double sqrt(double d);
 #pragma intrinsic(sqrt)
 
 float fmodf(float dividend, float divisor);
+
+#endif /* TARGET_PSP || PLATFORM_PSP */
 
 #endif

@@ -78,6 +78,16 @@
  */
 void Mtx_SetTranslateScaleMtx(Mtx* mtx, f32 scaleX, f32 scaleY, f32 scaleZ, f32 translateX, f32 translateY,
                               f32 translateZ) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    f32 mf[4][4] = {
+        { scaleX, 0.0f, 0.0f, 0.0f },
+        { 0.0f, scaleY, 0.0f, 0.0f },
+        { 0.0f, 0.0f, scaleZ, 0.0f },
+        { translateX, translateY, translateZ, 1.0f },
+    };
+
+    guMtxF2L(mf, mtx);
+#else
     struct {
         u16 intPart[4][4];
         u16 fracPart[4][4];
@@ -129,6 +139,7 @@ void Mtx_SetTranslateScaleMtx(Mtx* mtx, f32 scaleX, f32 scaleY, f32 scaleZ, f32 
     // [0, scaleY.f], [0, 0],
     // [0, 0], [scaleZ.f, 0]
     // [translateX.f, translateY.f], [translateZ.f, 0]
+#endif
 }
 
 // Unused
@@ -165,6 +176,26 @@ void Mtx_SetTranslateScaleMtx(Mtx* mtx, f32 scaleX, f32 scaleY, f32 scaleZ, f32 
  */
 // TODO: Find a way to match without the intPart/fracPart union (see Mtx_SetTranslateScaleMtx)
 void Mtx_SetRotationMtx(Mtx* mtx, s32 angle, f32 axisX, f32 axisY, f32 axisZ) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    f32 sin = Math_SinS(angle);
+    f32 cos = Math_CosS(angle);
+    f32 oneMinusCos = 1.0f - cos;
+    f32 tempX = axisY * axisZ * oneMinusCos;
+    f32 tempY = axisZ * axisX * oneMinusCos;
+    f32 tempZ = axisX * axisY * oneMinusCos;
+    f32 mf[4][4] = {
+        { ((1.0f - (axisX * axisX)) * cos) + (axisX * axisX), tempZ + (axisZ * sin),
+          tempY + (axisY * sin), 0.0f },
+        { tempZ - (axisZ * sin), ((1.0f - (axisY * axisY)) * cos) + (axisY * axisY),
+          tempX + (axisX * sin), 0.0f },
+        { tempY - (axisY * sin), tempX - (axisX * sin),
+          ((1.0f - (axisZ * axisZ)) * cos) + (axisZ * axisZ), 0.0f },
+        { 0.0f, 0.0f, 0.0f, 1.0f },
+    };
+
+    /* Preserve the original routine's axis-Y sign quirk, but emit native words. */
+    guMtxF2L(mf, mtx);
+#else
     //! FAKE? The somewhat peculiar distribution of temps in this function seems necessary to match?
     f32 tempX;
     f32 tempZ;
@@ -240,6 +271,7 @@ void Mtx_SetRotationMtx(Mtx* mtx, s32 angle, f32 axisX, f32 axisY, f32 axisZ) {
     fixedPoint = (tempZ + axisZ * sin) * 0x10000;
     mtx->intPart[0][1] = ((u32)fixedPoint >> 0x10) & 0xFFFF;
     mtx->fracPart[0][1] = fixedPoint & 0xFFFF;
+#endif
 }
 
 /**
@@ -283,6 +315,26 @@ void Mtx_SetRotationMtx(Mtx* mtx, s32 angle, f32 axisX, f32 axisY, f32 axisZ) {
 // TODO: Find a way to match without the intPart/fracPart union (see Mtx_SetTranslateScaleMtx)
 void Mtx_SetTranslationRotationScaleMtx(Mtx* mtx, f32 scaleX, f32 scaleY, f32 scaleZ, s32 angle, f32 axisX, f32 axisY,
                                         f32 axisZ, f32 translateX, f32 translateY, f32 translateZ) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    f32 sin = Math_SinS(angle);
+    f32 cos = Math_CosS(angle);
+    f32 oneMinusCos = 1.0f - cos;
+    f32 tempX = axisY * axisZ * oneMinusCos;
+    f32 tempY = axisZ * axisX * oneMinusCos;
+    f32 tempZ = axisX * axisY * oneMinusCos;
+    f32 mf[4][4] = {
+        { (((1.0f - (axisX * axisX)) * cos) + (axisX * axisX)) * scaleX,
+          (tempZ + (axisZ * sin)) * scaleX, (tempY + (axisY * sin)) * scaleX, 0.0f },
+        { (tempZ - (axisZ * sin)) * scaleY,
+          (((1.0f - (axisY * axisY)) * cos) + (axisY * axisY)) * scaleY,
+          (tempX + (axisX * sin)) * scaleY, 0.0f },
+        { (tempY - (axisY * sin)) * scaleZ, (tempX - (axisX * sin)) * scaleZ,
+          (((1.0f - (axisZ * axisZ)) * cos) + (axisZ * axisZ)) * scaleZ, 0.0f },
+        { translateX, translateY, translateZ, 1.0f },
+    };
+
+    guMtxF2L(mf, mtx);
+#else
     f32 tempX;
     f32 tempY;
     f32 tempZ;
@@ -364,4 +416,5 @@ void Mtx_SetTranslationRotationScaleMtx(Mtx* mtx, f32 scaleX, f32 scaleY, f32 sc
     mtx->m[1][3] = fixedPoint;           // [i32, i33]
     mtx->intPart[3][3] = 1;              // clean i33
     mtx->m[3][3] = (fixedPoint << 0x10); // [f32, f33]
+#endif
 }

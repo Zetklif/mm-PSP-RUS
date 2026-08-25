@@ -1157,6 +1157,15 @@ void Matrix_SetTranslateRotateYXZ(f32 x, f32 y, f32 z, Vec3s* rot) {
  * @remark original name: "_MtxF_to_Mtx"
  */
 Mtx* Matrix_MtxFToMtx(MtxF* src, Mtx* dest) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /*
+     * The original halfword stores rely on the N64's big-endian Mtx layout.
+     * Build the paired fixed-point words directly on little-endian PSP, as
+     * the OoT PSP port does, so the renderer receives valid projection and
+     * model-view matrices.
+     */
+    guMtxF2L(src->mf, dest);
+#else
     s32 temp;
     u16* intPart = (u16*)&dest->m[0][0];
     u16* fracPart = (u16*)&dest->m[2][0];
@@ -1225,6 +1234,7 @@ Mtx* Matrix_MtxFToMtx(MtxF* src, Mtx* dest) {
     temp = src->ww * 0x10000;
     intPart[15] = (temp >> 0x10);
     fracPart[15] = temp;
+#endif
 
     return dest;
 }
@@ -1480,6 +1490,10 @@ void Matrix_MtxFCopy(MtxF* dest, MtxF* src) {
  * @remark original name: "Matrix_MtxtoMtxF"
  */
 void Matrix_MtxToMtxF(Mtx* src, MtxF* dest) {
+#if defined(TARGET_PSP) || defined(PLATFORM_PSP)
+    /* Decode the native paired fixed-point words produced for PSP. */
+    guMtxL2F(dest->mf, src);
+#else
     u16* intPart = (u16*)&src->m[0][0];
     u16* fracPart = (u16*)&src->m[2][0];
 
@@ -1499,6 +1513,7 @@ void Matrix_MtxToMtxF(Mtx* src, MtxF* dest) {
     dest->yw = ((intPart[13] << 0x10) | fracPart[13]) * (1 / (f32)0x10000);
     dest->zw = ((intPart[14] << 0x10) | fracPart[14]) * (1 / (f32)0x10000);
     dest->ww = ((intPart[15] << 0x10) | fracPart[15]) * (1 / (f32)0x10000);
+#endif
 }
 
 // Unused
