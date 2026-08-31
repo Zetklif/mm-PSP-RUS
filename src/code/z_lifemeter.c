@@ -224,7 +224,9 @@ void LifeMeter_Draw(PlayState* play) {
     f32 temp_f4;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
+#if !PLATFORM_PSP
     Vtx* beatingHeartVtx = interfaceCtx->beatingHeartVtx;
+#endif
     s32 fractionHeartCount = gSaveContext.save.saveInfo.playerData.health % 0x10;
     s16 healthCapacity = gSaveContext.save.saveInfo.playerData.healthCapacity / 0x10;
     s16 fullHeartCount = gSaveContext.save.saveInfo.playerData.health / 0x10;
@@ -366,8 +368,6 @@ void LifeMeter_Draw(PlayState* play) {
                                 (s32)((posX + halfTexSize) * 4), (s32)((posY + halfTexSize) * 4), G_TX_RENDERTILE, 0, 0,
                                 (s32)temp_f4, (s32)temp_f4);
         } else {
-            Mtx* mtx;
-
             if ((ddCount < 0) || (ddCount < i)) {
                 if (curCombineModeSet != 2) {
                     curCombineModeSet = 2;
@@ -385,12 +385,28 @@ void LifeMeter_Draw(PlayState* play) {
                     gDPSetAlphaCompare(OVERLAY_DISP++, G_AC_THRESHOLD);
                 }
             }
-            mtx = GRAPH_ALLOC(gfxCtx, sizeof(Mtx));
-            Mtx_SetTranslateScaleMtx(mtx, 1.0f - (0.32f * lifesize), 1.0f - (0.32f * lifesize),
-                                     1.0f - (0.32f * lifesize), -130.0f + offsetX, 94.5f - offsetY, 0.0f);
-            gSPMatrix(OVERLAY_DISP++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
-            gSPVertex(OVERLAY_DISP++, beatingHeartVtx, 4, 0);
-            gSP1Quadrangle(OVERLAY_DISP++, 0, 2, 3, 1, 0);
+
+#if PLATFORM_PSP
+            posY = 25.5f + offsetY;
+            posX = 30.0f + offsetX;
+            temp_f4 = 1.0f - (0.32f * lifesize);
+            halfTexSize = 8.0f * temp_f4;
+            temp_f4 = (1.0f / temp_f4) * (1 << 10);
+            gSPTextureRectangle(OVERLAY_DISP++, (s32)((posX - halfTexSize) * 4),
+                                (s32)((posY - halfTexSize) * 4), (s32)((posX + halfTexSize) * 4),
+                                (s32)((posY + halfTexSize) * 4), G_TX_RENDERTILE, 0, 0, (s32)temp_f4,
+                                (s32)temp_f4);
+#else
+            {
+                Mtx* mtx = GRAPH_ALLOC(gfxCtx, sizeof(Mtx));
+
+                Mtx_SetTranslateScaleMtx(mtx, 1.0f - (0.32f * lifesize), 1.0f - (0.32f * lifesize),
+                                         1.0f - (0.32f * lifesize), -130.0f + offsetX, 94.5f - offsetY, 0.0f);
+                gSPMatrix(OVERLAY_DISP++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+                gSPVertex(OVERLAY_DISP++, beatingHeartVtx, 4, 0);
+                gSP1Quadrangle(OVERLAY_DISP++, 0, 2, 3, 1, 0);
+            }
+#endif
         }
 
         offsetX += 10.0f;
