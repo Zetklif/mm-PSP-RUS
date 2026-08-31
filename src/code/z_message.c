@@ -5938,7 +5938,13 @@ void Message_Update(PlayState* play) {
             break;
 
         case MSGMODE_OCARINA_PLAYING:
-            if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
+            if (CHECK_BTN_ALL(input->press.button, BTN_B)
+#if PLATFORM_PSP
+                || ((msgCtx->ocarinaAction == OCARINA_ACTION_FREE_PLAY ||
+                     msgCtx->ocarinaAction >= OCARINA_ACTION_CHECK_SARIAS) &&
+                    CHECK_BTN_ALL(input->cur.button, BTN_B))
+#endif
+            ) {
                 AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_OFF);
                 play->msgCtx.ocarinaMode = OCARINA_MODE_END;
                 Message_CloseTextbox(play);
