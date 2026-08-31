@@ -23,6 +23,7 @@ u8 sMotionBlurStatus;
 #include "attributes.h"
 #if PLATFORM_PSP
 #include "oot_psp_gfx_ext.h"
+#include "oot_psp_renderer.h"
 #endif
 
 #include "z64bombers_notebook.h"
@@ -1270,6 +1271,15 @@ void Play_DrawMain(PlayState* this) {
         }
 
         PreRender_SetValues(&this->pauseBgPreRender, gCfbWidth, gCfbHeight, gfxCtx->curFrameBuffer, gfxCtx->zbuffer);
+
+#if PLATFORM_PSP
+        if (R_PAUSE_BG_PRERENDER_STATE == PAUSE_BG_PRERENDER_READY) {
+            /* The backend has already restored the captured gameplay frame into
+             * the draw buffer. Draw only the pause and interface overlays. */
+            sp25B = true;
+            goto PostWorldDraw;
+        }
+#endif
 
         if (R_PAUSE_BG_PRERENDER_STATE == PAUSE_BG_PRERENDER_PROCESS) {
             Sched_FlushTaskQueue();

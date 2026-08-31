@@ -5,6 +5,7 @@
  */
 
 #include "z_kaleido_scope.h"
+#include "segmented_address.h"
 #include "assets/interface/parameter_static/parameter_static.h"
 #include "assets/interface/icon_item_field_static/icon_item_field_static.h"
 #include "assets/interface/icon_item_dungeon_static/icon_item_dungeon_static.h"
@@ -258,9 +259,9 @@ void KaleidoScope_DrawDungeonMap(PlayState* play) {
                 }
             }
         } else if (CHECK_DUNGEON_ITEM(i, gSaveContext.dungeonSceneSharedIndex)) {
-            gDPLoadTextureBlock(POLY_OPA_DISP++, sDungeonItemTextures[i], G_IM_FMT_RGBA, G_IM_SIZ_32b, 24, 24, 0,
-                                G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
-                                G_TX_NOLOD, G_TX_NOLOD);
+            gDPLoadTextureBlock(POLY_OPA_DISP++, SEGMENTED_TO_VIRTUAL_EXPLICIT(sDungeonItemTextures[i]), G_IM_FMT_RGBA,
+                                G_IM_SIZ_32b, 24, 24, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,
+                                G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 
             // QUAD_MAP_PAGE_DUNGEON_BOSS_KEY
             // QUAD_MAP_PAGE_DUNGEON_COMPASS

@@ -7,6 +7,7 @@
 #include "z_kaleido_scope.h"
 
 #include "sys_cmpdma.h"
+#include "segmented_address.h"
 #include "z64map.h"
 #include "z64skybox.h"
 #include "z64view.h"
@@ -17,6 +18,12 @@
 #include "assets/interface/icon_item_gameover_static/icon_item_gameover_static.h"
 #include "assets/interface/icon_item_jpn_static/icon_item_jpn_static.h"
 #include "assets/interface/icon_item_vtx_static/icon_item_vtx_static.h"
+
+#if PLATFORM_PSP
+static void KaleidoScope_SetPspSegmentBase(s32 segment, void* base) {
+    gSegments[segment] = (base != NULL) ? OS_K0_TO_PHYSICAL(base) : 0;
+}
+#endif
 
 // Page Textures (Background of Page):
 // Broken up into multiple textures.
@@ -410,8 +417,9 @@ Gfx* KaleidoScope_DrawPageSections(Gfx* gfx, Vtx* vertices, TexturePtr* textures
     // Draw first 8/15 background textures
     while (j < 32) {
         gDPPipeSync(gfx++);
-        gDPLoadTextureBlock(gfx++, textures[i], G_IM_FMT_IA, G_IM_SIZ_8b, 80, 32, 0, G_TX_NOMIRROR | G_TX_WRAP,
-                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+        gDPLoadTextureBlock(gfx++, SEGMENTED_TO_VIRTUAL_EXPLICIT(textures[i]), G_IM_FMT_IA, G_IM_SIZ_8b, 80, 32, 0,
+                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
+                            G_TX_NOLOD, G_TX_NOLOD);
         gSP1Quadrangle(gfx++, j, j + 2, j + 3, j + 1, 0);
 
         j += 4;
@@ -424,8 +432,9 @@ Gfx* KaleidoScope_DrawPageSections(Gfx* gfx, Vtx* vertices, TexturePtr* textures
     // Draw last 7/15 background textures
     while (j < 28) {
         gDPPipeSync(gfx++);
-        gDPLoadTextureBlock(gfx++, textures[i], G_IM_FMT_IA, G_IM_SIZ_8b, 80, 32, 0, G_TX_NOMIRROR | G_TX_WRAP,
-                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+        gDPLoadTextureBlock(gfx++, SEGMENTED_TO_VIRTUAL_EXPLICIT(textures[i]), G_IM_FMT_IA, G_IM_SIZ_8b, 80, 32, 0,
+                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
+                            G_TX_NOLOD, G_TX_NOLOD);
         gSP1Quadrangle(gfx++, j, j + 2, j + 3, j + 1, 0);
 
         j += 4;
@@ -2676,6 +2685,17 @@ void KaleidoScope_Draw(PlayState* play) {
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
     OPEN_DISPS(play->state.gfxCtx);
+
+#if PLATFORM_PSP
+    // CPU-side segmented texture resolution happens before these commands reach the renderer.
+    KaleidoScope_SetPspSegmentBase(0x02, interfaceCtx->parameterSegment);
+    KaleidoScope_SetPspSegmentBase(0x08, pauseCtx->iconItemSegment);
+    KaleidoScope_SetPspSegmentBase(0x09, pauseCtx->iconItem24Segment);
+    KaleidoScope_SetPspSegmentBase(0x0A, pauseCtx->nameSegment);
+    KaleidoScope_SetPspSegmentBase(0x0B, pauseCtx->iconItemVtxSegment);
+    KaleidoScope_SetPspSegmentBase(0x0C, pauseCtx->iconItemAltSegment);
+    KaleidoScope_SetPspSegmentBase(0x0D, pauseCtx->iconItemLangSegment);
+#endif
 
     gSPSegment(POLY_OPA_DISP++, 0x02, interfaceCtx->parameterSegment);
     gSPSegment(POLY_OPA_DISP++, 0x08, pauseCtx->iconItemSegment);

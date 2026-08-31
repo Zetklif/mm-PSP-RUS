@@ -10,6 +10,10 @@
 #include "z64voice.h"
 #include "attributes.h"
 
+#if PLATFORM_PSP
+#include "oot_psp_gfx_ext.h"
+#endif
+
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
 #include "assets/interface/parameter_static/parameter_static.h"
 #include "assets/interface/do_action_static/do_action_static.h"
@@ -4054,6 +4058,9 @@ void Interface_DrawItemButtons(PlayState* play) {
 
     if (!IS_PAUSE_STATE_GAMEOVER(pauseCtx)) {
         if (IS_PAUSED(&play->pauseCtx)) {
+#if PLATFORM_PSP
+            gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_NONE);
+#endif
             OVERLAY_DISP =
                 Gfx_DrawRect_DropShadow(OVERLAY_DISP, 136, 17, 22, 22, (s32)(1.4277344f * (1 << 10)),
                                         (s32)(1.4277344f * (1 << 10)), 255, 130, 60, interfaceCtx->startAlpha);
@@ -4068,6 +4075,9 @@ void Interface_DrawItemButtons(PlayState* play) {
                                    G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
             gSPTextureRectangle(OVERLAY_DISP++, 126 << 2, 21 << 2, 181 << 2, 39 << 2, G_TX_RENDERTILE, 0, 0,
                                 (s32)(1.16211f * (1 << 10)), (s32)(1.16211f * (1 << 10)));
+#if PLATFORM_PSP
+            gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_RIGHT);
+#endif
         }
     }
 
@@ -6398,6 +6408,9 @@ void Interface_Draw(PlayState* play) {
             gDPFillRectangle(OVERLAY_DISP++, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         }
 
+#if PLATFORM_PSP
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_LEFT);
+#endif
         LifeMeter_Draw(play);
 
         Gfx_SetupDL39_Overlay(play->state.gfxCtx);
@@ -6581,14 +6594,23 @@ void Interface_Draw(PlayState* play) {
         }
 
         Magic_DrawMeter(play);
+#if PLATFORM_PSP
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_RIGHT);
+#endif
         Map_DrawMinimap(play);
 
+#if PLATFORM_PSP
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_CENTER);
+#endif
         if ((R_PAUSE_BG_PRERENDER_STATE != 2) && (R_PAUSE_BG_PRERENDER_STATE != 3)) {
             Attention_Draw(&play->actorCtx.attention, play);
         }
 
         Gfx_SetupDL39_Overlay(play->state.gfxCtx);
 
+#if PLATFORM_PSP
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_RIGHT);
+#endif
         Interface_DrawItemButtons(play);
 
         if (player->transformation == GET_PLAYER_FORM) {
@@ -6598,6 +6620,12 @@ void Interface_Draw(PlayState* play) {
 
         Interface_DrawAButton(play);
 
+#if PLATFORM_PSP
+        /* This function restores the fullscreen orthographic view after the A button's
+         * perspective view. Establish that view without an edge anchor so the clock's
+         * vertex quads and texture rectangles share one coordinate space. */
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_NONE);
+#endif
         Interface_DrawPauseMenuEquippingIcons(play);
 
         // Draw either the minigame countdown or the three-day clock
@@ -6640,6 +6668,9 @@ void Interface_Draw(PlayState* play) {
                 Interface_DrawClock(play);
             }
         }
+#if PLATFORM_PSP
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_RIGHT);
+#endif
 
         // Draw the letters of minigame perfect
         if (interfaceCtx->perfectLettersOn) {
@@ -6648,6 +6679,11 @@ void Interface_Draw(PlayState* play) {
 
         Interface_DrawMinigameIcons(play);
         Interface_DrawTimers(play);
+
+#if PLATFORM_PSP
+        /* Message and ocarina overlays use the centered 4:3 presentation. */
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_NONE);
+#endif
     }
 
     // Draw pictograph focus icons
