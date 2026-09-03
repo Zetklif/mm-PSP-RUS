@@ -1643,6 +1643,43 @@ static void gfx_scegu_draw_triangles(float buf_vbo[], UNUSED size_t buf_vbo_len,
     sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D, 3 * buf_vbo_num_tris, 0, buf);
 }
 
+static void gfx_scegu_draw_texture_multiply_triangles(float buf_vbo[], size_t buf_vbo_len,
+                                                       size_t buf_vbo_num_tris) {
+    struct ShaderProgram *restoreShader = sAppliedShader;
+    const size_t vertexCount = 3 * buf_vbo_num_tris;
+    void *buf;
+
+    gfx_scegu_reserve_list_memory(buf_vbo_len);
+    buf = sceGuGetMemory(buf_vbo_len);
+    OotPsp_MemcpyVfpu(buf, buf_vbo, buf_vbo_len);
+
+    /* TEXEL1 * TEXEL0 cannot be expressed by the GU's single texture unit.
+     * The first pass has already drawn TEXEL0 * SHADE; multiplying its pixels
+     * by TEXEL1 reconstructs the RDP color combiner without baking textures. */
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
+    sceGuDisable(GU_ALPHA_TEST);
+    sceGuDepthMask(GU_TRUE);
+    if (sDepthTestEnabled && sDepthWriteEnabled) {
+        sceGuDepthFunc(GU_EQUAL);
+    }
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD, GU_OTHER_COLOR, GU_FIX, 0, 0);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                   vertexCount, 0, buf);
+
+    sceGuDepthFunc(GU_GEQUAL);
+    sceGuDepthMask(sDepthWriteEnabled ? GU_FALSE : GU_TRUE);
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+    if (restoreShader != NULL) {
+        sAppliedShader = NULL;
+        gfx_scegu_apply_shader(restoreShader);
+    }
+    if (!gl_blend) {
+        sceGuDisable(GU_BLEND);
+    }
+}
+
 static void gfx_scegu_draw_fog_triangles(float buf_vbo[], size_t buf_vbo_len,
                                          size_t buf_vbo_num_tris, bool useTextureAlpha,
                                          bool restoreShaderState) {
@@ -1722,6 +1759,48 @@ void gfx_scegu_draw_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len, UNU
     quad[1].y += originY;
 
     sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D, 2, 0, quad);
+}
+
+void gfx_scegu_draw_texture_multiply_triangles_2d(float buf_vbo[], UNUSED size_t buf_vbo_len,
+                                                   UNUSED size_t buf_vbo_num_tris) {
+    struct ShaderProgram *restoreShader = sAppliedShader;
+    VertexColor *quad;
+    int originX;
+    int originY;
+
+    gfx_scegu_reserve_list_memory(sizeof(VertexColor) * 2);
+    quad = sceGuGetMemory(sizeof(VertexColor) * 2);
+    OotPsp_MemcpyVfpu(quad, buf_vbo, sizeof(VertexColor) * 2);
+
+    originX = (SCR_WIDTH - (int)gfx_current_dimensions.width) / 2;
+    originY = (SCR_HEIGHT - (int)gfx_current_dimensions.height) / 2;
+    quad[0].x += originX;
+    quad[0].y += originY;
+    quad[1].x += originX;
+    quad[1].y += originY;
+
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
+    sceGuDisable(GU_ALPHA_TEST);
+    sceGuDepthMask(GU_TRUE);
+    if (sDepthTestEnabled && sDepthWriteEnabled) {
+        sceGuDepthFunc(GU_EQUAL);
+    }
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD, GU_OTHER_COLOR, GU_FIX, 0, 0);
+    sceGuDrawArray(GU_SPRITES, GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D,
+                   2, 0, quad);
+
+    sceGuDepthFunc(GU_GEQUAL);
+    sceGuDepthMask(sDepthWriteEnabled ? GU_FALSE : GU_TRUE);
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+    if (restoreShader != NULL) {
+        sAppliedShader = NULL;
+        gfx_scegu_apply_shader(restoreShader);
+    }
+    if (!gl_blend) {
+        sceGuDisable(GU_BLEND);
+    }
 }
 
 static void gfx_scegu_set_mode_geometry(const OotPspVideoMode *mode) {
@@ -2142,6 +2221,7 @@ struct GfxRenderingAPI gfx_scegu_api = {
     gfx_scegu_set_scissor,
     gfx_scegu_set_use_alpha,
     gfx_scegu_draw_triangles,
+    gfx_scegu_draw_texture_multiply_triangles,
     gfx_scegu_draw_fog_triangles,
     gfx_scegu_init,
     gfx_scegu_on_resize,
