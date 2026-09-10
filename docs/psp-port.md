@@ -61,7 +61,13 @@ The build requires:
 
 - a working PSPSDK (`psp-config`, `psp-gcc`, `psp-prxgen`, and `pack-pbp` on
   `PATH`);
+- the PSP intraFont library and headers (`libintrafont`);
 - the matching US Majora's Mask baserom required by this decompilation project.
+
+The custom HOME menu loads `flash0:/font/ltn0.pgf` through intraFont during
+renderer initialization. The font comes from PSP firmware; no font file needs
+to be copied to the game folder. The bitmap fallback is retained for runtime
+initialization or font-load failures.
 
 Prepare the decompilation assets once, then build the PSP package:
 

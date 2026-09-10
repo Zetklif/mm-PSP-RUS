@@ -206,7 +206,7 @@ PSP_BACKEND_DEPS := $(PSP_BACKEND_OBJECTS:.o=.d) $(PSP_PLATFORM_OBJECTS:.o=.d) $
 	$(PSP_LINKED_ASSET_OBJECTS:.o=.d) $(PSP_NATIVE_ASSET_OBJECTS:.o=.d) $(PSP_ASSET_OBJECTS:.o=.d) \
 	$(PSP_DVEMGR_OBJECTS:.o=.d)
 
-PSP_LIBS := -L$(PSP_SDK)/lib -L$(PSP_PREFIX)/lib -lme-core -lpspdmac -lpspgu -lpspgum -ljpeg -lz \
+PSP_LIBS := -L$(PSP_SDK)/lib -L$(PSP_PREFIX)/lib -lme-core -lpspdmac -lintrafont -lpspgu -lpspgum -ljpeg -lz \
 	-lpspdisplay -lpspge -lpspfpu -lpspctrl -lpsppower -lpspaudio -lpspdebug -lpspkubridge
 PSP_LDFLAGS := -specs=$(PSP_SDK)/lib/prxspecs -Wl,-q,-T$(PSP_SDK)/lib/linkfile.prx \
 	-Wl,-zmax-page-size=128 -Wl,--gc-sections -Wl,-u,module_info \

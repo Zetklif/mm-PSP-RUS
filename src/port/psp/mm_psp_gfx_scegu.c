@@ -5,6 +5,8 @@
  * can add its motion blur without duplicating the complete implementation.
  */
 #define gfx_scegu_apply_vismono MmPspGfx_ApplyVisMonoOriginal
+/* MM ships intraFont; enable the firmware font loader in the shared backend. */
+#define OOT_PSP_USE_INTRAFONT 1
 #include "gfx/gfx_scegu.c"
 #undef gfx_scegu_apply_vismono
 

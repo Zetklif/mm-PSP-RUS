@@ -27,8 +27,9 @@ PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER | PSP_THREAD_ATTR_VFPU);
 /* Leave headroom for raw PSPLink launches while retaining ample room for MM's
  * deepest game call paths. */
 PSP_MAIN_THREAD_STACK_SIZE_KB(256);
-/* MM's game arena is a separate 8 MiB user-partition allocation. */
-PSP_HEAP_SIZE_KB(64);
+/* Keep enough bootstrap heap for intraFont's firmware PGF cache. MM's game
+ * arena remains a separate 8 MiB user-partition allocation. */
+PSP_HEAP_SIZE_KB(1024);
 
 s32 MmPspGame_Init(void);
 s32 MmPspGame_ReserveHeap(void);
