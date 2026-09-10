@@ -222,6 +222,10 @@ struct TriPipelineState {
     bool two_texture_alpha_blend;
     bool fog_uses_texture_alpha;
     bool flame_texture_atlas;
+    bool material_texture;
+    bool is_2d;
+    bool color_add_prim;
+    struct RGBA additive_color;
     bool texture_tint_colors_corrected;
     bool two_texture_uncompensated_alpha;
     struct RGBA texture_tint_env_color;
@@ -310,6 +314,7 @@ static struct RDP {
     
     uint32_t other_mode_l, other_mode_h;
     uint32_t combine_mode;
+    uint32_t combine_w0, combine_w1, combine_cycle_type;
     bool combine_color_mul_env;
     bool combine_color_mul_prim;
     bool combine_two_texture_blend;
@@ -988,6 +993,7 @@ typedef struct __attribute__((aligned(16))) FlameAtlasCacheEntry {
 static FlameAtlasCacheEntry sFlameAtlasCache[GFX_FLAME_ATLAS_CACHE_SIZE] __attribute__((aligned(16)));
 static FlameAtlasCacheEntry* sPreparedFlameAtlas;
 static uint32_t sFlameAtlasUseClock;
+static void gfx_material_texture_reset(void);
 
 static inline uint32_t gfx_next_power_of_two(uint32_t value) {
     if (value <= 1) {
@@ -1509,7 +1515,8 @@ static void gfx_flush(void) {
          * frame. Record the allocations consumed by this GU list so a second
          * palette value in the same frame gets a separate allocation instead
          * of changing pixels underneath an already queued draw. */
-        if (rendering_state.tri_pipeline.use_texture && !rendering_state.tri_pipeline.flame_texture_atlas) {
+        if (rendering_state.tri_pipeline.use_texture && !rendering_state.tri_pipeline.flame_texture_atlas &&
+            !rendering_state.tri_pipeline.material_texture) {
             if (twoTextureBlend) {
                 rendering_state.textures[0]->last_used_frame = sTextureCacheFrameSerial;
                 rendering_state.textures[1]->last_used_frame = sTextureCacheFrameSerial;
@@ -1570,6 +1577,15 @@ static void gfx_flush(void) {
             gfx_rapi->select_texture(0, rendering_state.textures[0]->texture_id);
             rendering_state.bound_texture_id = rendering_state.textures[0]->texture_id;
             rendering_state.bound_texture_tile = 0;
+        }
+        if (rendering_state.tri_pipeline.color_add_prim &&
+            !(rendering_state.color_combiner_id & SHADER_OPT_DEPTH_ONLY)) {
+            const struct RGBA color = rendering_state.tri_pipeline.additive_color;
+            if (color.r || color.g || color.b) {
+                gfx_rapi->draw_color_add_triangles((float*)buf_vbo, buf_vbo_len, buf_vbo_num_tris,
+                                                   color.r, color.g, color.b,
+                                                   rendering_state.tri_pipeline.use_alpha);
+            }
         }
         if (useFog) {
 #if defined(OOTDEBUG)
@@ -1963,6 +1979,7 @@ static void gfx_texture_cache_reset(void) {
         sFlameAtlasCache[i].textureValid = false;
     }
     sPreparedFlameAtlas = NULL;
+    gfx_material_texture_reset();
     rendering_state.bound_texture_id = 0;
     rendering_state.bound_texture_tile = -1;
 #endif
@@ -3230,17 +3247,39 @@ static void gfx_prepare_flame_atlas_coord_state(struct TriPipelineState* state) 
 }
 #endif
 
-static void gfx_prepare_tri_pipeline_state(void) {
-    if (!rendering_state.tri_pipeline_dirty) {
+static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1);
+
+#if defined(TARGET_PSP)
+#include "gfx_material_texture.inc.c"
+#endif
+
+static void gfx_prepare_tri_pipeline_state(bool is_2d) {
+    if (!rendering_state.tri_pipeline_dirty && rendering_state.tri_pipeline.is_2d == is_2d) {
         return;
     }
 
 #if defined(TARGET_PSP)
+    if (((rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) <= G_CYC_2CYCLE) &&
+        (rdp.combine_cycle_type != (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)))) {
+        /* Display lists may set the cycle type after SetCombine. Decode using
+         * the mode that will actually draw, regardless of command ordering. */
+        gfx_dp_set_combine(rdp.combine_w0, rdp.combine_w1);
+    }
+    const bool material_texture = !is_2d && gfx_prepare_material_texture();
     const bool flame_texture_atlas =
         rdp.combine_flame_texture_atlas && gfx_prepare_flame_atlas();
 #else
     const bool flame_texture_atlas = false;
+    const bool material_texture = false;
 #endif
+    const bool two_texture_blend = rdp.combine_two_texture_blend && !material_texture;
+    const bool two_texture_multiply = rdp.combine_two_texture_multiply && !material_texture;
+    const bool color_add_prim = material_texture && (((rdp.combine_w1 >> 6) & 7) == G_CCMUX_PRIMITIVE);
+    if ((material_texture != rendering_state.tri_pipeline.material_texture) ||
+        (color_add_prim != rendering_state.tri_pipeline.color_add_prim) ||
+        (color_add_prim && memcmp(&rdp.prim_color, &rendering_state.tri_pipeline.additive_color, sizeof(struct RGBA)))) {
+        gfx_flush();
+    }
     /* Setup display lists often switch away from the flame combiner and back without drawing anything. Delay
      * this transition flush until a different path actually prepares geometry, allowing consecutive flames to
      * remain in one GU triangle batch. Their transforms, colors, and atlas phases are already per-vertex. */
@@ -3250,10 +3289,10 @@ static void gfx_prepare_tri_pipeline_state(void) {
     /* The two-texture fallback is another property consumed by gfx_flush itself. Keep the prepared value until
      * geometry actually reaches the new combiner, just as the flame-atlas path does. This collapses material
      * setup display lists that switch the combiner several times without emitting triangles. */
-    if (rdp.combine_two_texture_blend != rendering_state.tri_pipeline.two_texture_blend) {
+    if (two_texture_blend != rendering_state.tri_pipeline.two_texture_blend) {
         gfx_flush();
     }
-    if (rdp.combine_two_texture_multiply != rendering_state.tri_pipeline.two_texture_multiply) {
+    if (two_texture_multiply != rendering_state.tri_pipeline.two_texture_multiply) {
         gfx_flush();
     }
     if ((rdp.combine_two_texture_blend_uses_prim_lod !=
@@ -3262,7 +3301,8 @@ static void gfx_prepare_tri_pipeline_state(void) {
          rendering_state.tri_pipeline.two_texture_alpha_blend)) {
         gfx_flush();
     }
-    const bool backend_state_dirty = rendering_state.backend_state_dirty;
+    const bool backend_state_dirty = rendering_state.backend_state_dirty ||
+                                     (material_texture != rendering_state.tri_pipeline.material_texture);
     bool depth_test = (rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER;
     if (backend_state_dirty || depth_test != rendering_state.depth_test) {
         gfx_flush();
@@ -3299,6 +3339,11 @@ static void gfx_prepare_tri_pipeline_state(void) {
     }
 
     uint32_t cc_id = rdp.combine_mode;
+    if (material_texture) {
+        /* The material texture contains both alpha cycles. Only SHADE RGB
+         * remains per vertex; consume the baked alpha exactly once. */
+        cc_id = CC_TEXEL0 | (CC_SHADE << 6) | (CC_TEXEL0 << 21);
+    }
 
     uint32_t alpha_compare = rdp.other_mode_l & (3 << G_MDSFT_ALPHACOMPARE);
     bool alpha_blend = (rdp.other_mode_l & FORCE_BL) &&
@@ -3392,7 +3437,7 @@ static void gfx_prepare_tri_pipeline_state(void) {
     const int active_texture = comb->active_texture;
 
     for (int i = 0; i < 2; i++) {
-        if (used_textures[i] && !flame_texture_atlas) {
+        if (used_textures[i] && !flame_texture_atlas && !material_texture) {
             const TextureTileState* tileState = gfx_get_texture_tile(i);
 
             if (rendering_state.textures[i] == NULL) {
@@ -3422,7 +3467,18 @@ static void gfx_prepare_tri_pipeline_state(void) {
         }
     }
 
-    if (flame_texture_atlas) {
+    if (material_texture) {
+#if defined(TARGET_PSP)
+        if (backend_state_dirty || rendering_state.bound_texture_id != sMaterialTexture->textureId ||
+            rendering_state.bound_texture_tile != 0) {
+            gfx_flush();
+            gfx_rapi->select_texture(0, sMaterialTexture->textureId);
+            gfx_rapi->set_sampler_parameters(0, linear_filter, G_TX_WRAP, G_TX_WRAP, 1, 1);
+            rendering_state.bound_texture_id = sMaterialTexture->textureId;
+            rendering_state.bound_texture_tile = 0;
+        }
+#endif
+    } else if (flame_texture_atlas) {
 #if defined(TARGET_PSP)
         const uint32_t atlasTextureId = sPreparedFlameAtlas->textureId;
 
@@ -3455,8 +3511,8 @@ static void gfx_prepare_tri_pipeline_state(void) {
     state->used_textures[0] = used_textures[0];
     state->used_textures[1] = used_textures[1];
     state->use_texture = used_textures[0] || used_textures[1];
-    state->two_texture_blend = rdp.combine_two_texture_blend;
-    state->two_texture_multiply = rdp.combine_two_texture_multiply;
+    state->two_texture_blend = two_texture_blend;
+    state->two_texture_multiply = two_texture_multiply;
     state->two_texture_blend_uses_prim_lod = rdp.combine_two_texture_blend_uses_prim_lod;
     state->two_texture_alpha_blend = rdp.combine_two_texture_alpha_blend;
     /* Texture-edge pixels become fully opaque after passing the alpha test.
@@ -3468,12 +3524,16 @@ static void gfx_prepare_tri_pipeline_state(void) {
     state->fog_uses_texture_alpha =
         use_fog && comb->uses_texture_alpha && !(texture_edge && depth_test && z_upd);
     state->flame_texture_atlas = flame_texture_atlas;
+    state->material_texture = material_texture;
+    state->is_2d = is_2d;
+    state->color_add_prim = color_add_prim;
+    state->additive_color = rdp.prim_color;
     state->texture_tint_colors_corrected = textureTintColorsCorrected;
     state->two_texture_uncompensated_alpha = twoTextureUncompensatedAlpha;
     state->texture_tint_env_color = textureTintEnvColor;
     state->color_mul_env = rdp.combine_color_mul_env;
     state->color_mul_prim = rdp.combine_color_mul_prim;
-    state->alpha_mul_env = rdp.combine_alpha_mul_env;
+    state->alpha_mul_env = rdp.combine_alpha_mul_env && !material_texture;
     for (int i = 0; i < 2; i++) {
         state->tex_u_scale[i] = 0.0f;
         state->tex_v_scale[i] = 0.0f;
@@ -3493,7 +3553,14 @@ static void gfx_prepare_tri_pipeline_state(void) {
             base_texture = used_textures[0] ? 0 : 1;
         }
 
-        if (state->flame_texture_atlas) {
+        if (material_texture) {
+#if defined(TARGET_PSP)
+            state->tex_u_scale[0] = sMaterialTexture->scaleS / (32.0f * sMaterialTexture->width);
+            state->tex_v_scale[0] = sMaterialTexture->scaleT / (32.0f * sMaterialTexture->height);
+            state->tex_u_bias[0] = linear_filter ? 0.5f / sMaterialTexture->width : 0;
+            state->tex_v_bias[0] = linear_filter ? 0.5f / sMaterialTexture->height : 0;
+#endif
+        } else if (state->flame_texture_atlas) {
 #if defined(TARGET_PSP)
             gfx_prepare_flame_atlas_coord_state(state);
 #endif
@@ -4206,7 +4273,7 @@ static void gfx_sp_triangles(uint32_t packed0, uint32_t packed1, uint8_t triangl
         clipped_vertices = sClippedVertexPtrs;
     }
 
-    gfx_prepare_tri_pipeline_state();
+    gfx_prepare_tri_pipeline_state(false);
     const struct TriPipelineState *state = &rendering_state.tri_pipeline;
     struct ColorCombiner *comb = state->comb;
     const bool use_alpha = state->use_alpha;
@@ -4426,7 +4493,7 @@ static void gfx_sp_tri1_2d(uint8_t vtx1_idx, uint8_t vtx2_idx, UNUSED uint8_t vt
     struct VertexColor *v2 = &rsp.loaded_vertices_2D[vtx2_idx];
     struct VertexColor *v_arr[2] = {v1, v2};
 
-    gfx_prepare_tri_pipeline_state();
+    gfx_prepare_tri_pipeline_state(true);
     const struct TriPipelineState *state = &rendering_state.tri_pipeline;
     struct ColorCombiner *comb = state->comb;
     const bool use_alpha = state->use_alpha;
@@ -5217,7 +5284,8 @@ static bool gfx_cc_is_two_texture_multiply_mul_shade(uint32_t a0, uint32_t b0, u
     return (a0 == G_CCMUX_TEXEL1) && (b0 == (G_CCMUX_0 & 0xF)) &&
            (c0 == G_CCMUX_TEXEL0) && (d0 == (G_CCMUX_0 & 0x7)) &&
            (a1 == G_CCMUX_COMBINED) && (b1 == (G_CCMUX_0 & 0xF)) &&
-           (c1 == G_CCMUX_SHADE) && (d1 == (G_CCMUX_0 & 0x7));
+           (c1 == G_CCMUX_SHADE) &&
+           ((d1 == (G_CCMUX_0 & 0x7)) || (d1 == G_CCMUX_PRIMITIVE));
 }
 
 static bool gfx_cc_is_alpha_two_texture_blend(uint32_t a, uint32_t b, uint32_t c, uint32_t d,
@@ -5383,6 +5451,10 @@ static void gfx_dp_set_combine_mode(uint32_t rgb, uint32_t alpha, bool color_mul
 }
 
 static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1) {
+    rdp.combine_w0 = w0;
+    rdp.combine_w1 = w1;
+    rdp.combine_cycle_type = rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE);
+    gfx_mark_tri_pipeline_dirty();
 #define COMB_FIELD(word, pos, width) (((word) >> (pos)) & ((1U << (width)) - 1))
     uint32_t rgbA0 = COMB_FIELD(w0, 20, 4);
     uint32_t rgbB0 = COMB_FIELD(w1, 28, 4);
@@ -5400,6 +5472,17 @@ static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1) {
     uint32_t alphaB1 = COMB_FIELD(w1, 3, 3);
     uint32_t alphaC1 = COMB_FIELD(w1, 18, 3);
     uint32_t alphaD1 = COMB_FIELD(w1, 0, 3);
+    if (rdp.combine_cycle_type != G_CYC_2CYCLE) {
+        /* One-cycle RDP rendering uses the second mux bank. Keep the normal
+         * single-cycle reductions, but do not fold in an unused first cycle. */
+        rgbA0 = rgbA1; rgbB0 = rgbB1; rgbC0 = rgbC1; rgbD0 = rgbD1;
+        alphaA0 = alphaA1; alphaB0 = alphaB1; alphaC0 = alphaC1; alphaD0 = alphaD1;
+        rgbA1 = rgbB1 = G_CCMUX_0 & 15;
+        rgbC1 = G_CCMUX_0;
+        rgbD1 = G_CCMUX_COMBINED;
+        alphaA1 = alphaB1 = alphaC1 = G_ACMUX_0;
+        alphaD1 = G_ACMUX_COMBINED;
+    }
     bool colorMulTexelShade =
         gfx_cc_is_color_mul(rgbA0, rgbB0, rgbC0, rgbD0, G_CCMUX_TEXEL0, G_CCMUX_SHADE);
     bool colorMulEnv = colorMulTexelShade &&
@@ -5437,6 +5520,14 @@ static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1) {
         alphaComb = color_comb(G_ACMUX_0, G_ACMUX_0, G_ACMUX_0, alphaC0);
     }
 
+    /* Fold TEXEL0 * PRIMITIVE, then COMBINED * SHADE into the same
+     * vertex tint as TEXEL0 * SHADE, then COMBINED * PRIMITIVE. */
+    if (gfx_cc_is_color_mul(rgbA0, rgbB0, rgbC0, rgbD0, G_CCMUX_TEXEL0, G_CCMUX_PRIMITIVE) &&
+        gfx_cc_is_color_mul(rgbA1, rgbB1, rgbC1, rgbD1, G_CCMUX_COMBINED, G_CCMUX_SHADE)) {
+        rgbComb = color_comb(G_CCMUX_TEXEL0, G_CCMUX_0, G_CCMUX_SHADE, G_CCMUX_0);
+        colorMulPrim = true;
+    }
+
     if (colorMulShadePrim) {
         /* The GU has one vertex-color input. Keep SHADE as that input and
          * apply the constant PRIMITIVE tint on the CPU. */
@@ -5453,12 +5544,15 @@ static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1) {
     if (gfx_cc_is_two_cycle_texture_blend_mul_shade(rgbA0, rgbB0, rgbC0, rgbD0, rgbA1, rgbB1, rgbC1,
                                                     rgbD1, G_CCMUX_ENV_ALPHA) ||
         gfx_cc_is_two_cycle_texture_blend_mul_shade(rgbA0, rgbB0, rgbC0, rgbD0, rgbA1, rgbB1, rgbC1,
-                                                    rgbD1, G_CCMUX_LOD_FRACTION)) {
+                                                    rgbD1, G_CCMUX_LOD_FRACTION) ||
+        gfx_cc_is_two_cycle_texture_blend_mul_shade(rgbA0, rgbB0, rgbC0, rgbD0, rgbA1, rgbB1, rgbC1,
+                                                    rgbD1, G_CCMUX_PRIM_LOD_FRAC)) {
         twoTextureBlend = true;
         /* The PSP has no RDP LOD/tile combiner. OoT's fixed two-tile materials
          * program prim_lod_frac alongside LOD_FRACTION, so use that value as
          * the blend factor for the two GU passes. */
-        twoTextureBlendUsesPrimLod = rgbC0 == G_CCMUX_LOD_FRACTION;
+        twoTextureBlendUsesPrimLod = (rgbC0 == G_CCMUX_LOD_FRACTION) ||
+                                     (rgbC0 == G_CCMUX_PRIM_LOD_FRAC);
         rgbComb = color_comb(G_CCMUX_TEXEL0, G_CCMUX_0, G_CCMUX_SHADE, G_CCMUX_0);
         if (gfx_cc_is_combined_mul_primitive(alphaA1, alphaB1, alphaC1, alphaD1)) {
             alphaComb = color_comb(G_ACMUX_0, G_ACMUX_0, G_ACMUX_0, G_ACMUX_PRIMITIVE);
@@ -5486,8 +5580,9 @@ static GFX_DL_HANDLER void gfx_dp_set_combine(uint32_t w0, uint32_t w1) {
 
     if (twoTextureBlend &&
         gfx_cc_is_alpha_two_texture_blend(alphaA0, alphaB0, alphaC0, alphaD0,
-                                          twoTextureBlendUsesPrimLod ? G_ACMUX_LOD_FRACTION
-                                                                     : G_ACMUX_ENVIRONMENT)) {
+                                          rgbC0 == G_CCMUX_PRIM_LOD_FRAC ? G_ACMUX_PRIM_LOD_FRAC :
+                                          (twoTextureBlendUsesPrimLod ? G_ACMUX_LOD_FRACTION
+                                                                     : G_ACMUX_ENVIRONMENT))) {
         /* The GU pass samples TEXEL0 first and TEXEL1 second. Canonicalize the
          * alpha combiner so each pass takes alpha from its currently-bound texture. Preserve cycle-two
          * PRIMITIVE or SHADE opacity here; the CPU separately supplies an ENVIRONMENT multiplier. */
@@ -5614,9 +5709,7 @@ static void gfx_dp_set_env_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     rdp.env_color.g = g;
     rdp.env_color.b = b;
     rdp.env_color.a = a;
-    if (rdp.combine_texture_tint_uses_prim_lod || rdp.combine_texture_tint_uses_env_alpha) {
-        gfx_mark_tri_pipeline_dirty();
-    }
+    gfx_mark_tri_pipeline_dirty();
 }
 
 static void gfx_dp_set_prim_color(uint8_t lod_frac, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {

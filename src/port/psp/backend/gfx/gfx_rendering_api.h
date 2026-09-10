@@ -29,6 +29,8 @@ struct GfxRenderingAPI {
     void (*draw_triangles)(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris);
     void (*draw_texture_multiply_triangles)(float buf_vbo[], size_t buf_vbo_len,
                                             size_t buf_vbo_num_tris);
+    void (*draw_color_add_triangles)(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris,
+                                     uint8_t r, uint8_t g, uint8_t b, bool use_texture_alpha);
     void (*draw_fog_triangles)(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris,
                                bool use_texture_alpha, bool restore_shader);
     void (*init)(void);

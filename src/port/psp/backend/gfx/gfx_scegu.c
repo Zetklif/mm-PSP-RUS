@@ -1680,6 +1680,46 @@ static void gfx_scegu_draw_texture_multiply_triangles(float buf_vbo[], size_t bu
     }
 }
 
+static void gfx_scegu_draw_color_add_triangles(float buf_vbo[], size_t buf_vbo_len,
+                                               size_t buf_vbo_num_tris, uint8_t r, uint8_t g, uint8_t b,
+                                               bool useTextureAlpha) {
+    struct ShaderProgram* restoreShader = sAppliedShader;
+    const size_t vertexCount = 3 * buf_vbo_num_tris;
+    const unsigned int rgb = r | ((unsigned int)g << 8) | ((unsigned int)b << 16);
+
+    gfx_scegu_reserve_list_memory(buf_vbo_len);
+    Vertex* vertices = sceGuGetMemory(buf_vbo_len);
+    OotPsp_MemcpyVfpu(vertices, buf_vbo, buf_vbo_len);
+    for (size_t i = 0; i < vertexCount; i++) {
+        vertices[i].color = rgb | (useTextureAlpha ? (vertices[i].color & 0xFF000000U) : 0xFF000000U);
+    }
+    /* Both blend endpoints are PRIMITIVE RGB, so texture RGB cancels.
+     * Texture alpha still masks the additive term of transparent materials. */
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexEnvColor(rgb);
+    sceGuTexFunc(GU_TFX_BLEND, useTextureAlpha ? GU_TCC_RGBA : GU_TCC_RGB);
+    sceGuDepthMask(GU_TRUE);
+    if (sDepthTestEnabled && sDepthWriteEnabled) {
+        sceGuDepthFunc(GU_EQUAL);
+    }
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFF);
+    sceGuDrawArray(GU_TRIANGLES, GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_3D,
+                   vertexCount, 0, vertices);
+
+    sceGuDepthFunc(GU_GEQUAL);
+    sceGuDepthMask(sDepthWriteEnabled ? GU_FALSE : GU_TRUE);
+    sceGuTexEnvColor(sTextureEnvColor);
+    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
+    if (restoreShader != NULL) {
+        sAppliedShader = NULL;
+        gfx_scegu_apply_shader(restoreShader);
+    }
+    if (!gl_blend) {
+        sceGuDisable(GU_BLEND);
+    }
+}
+
 static void gfx_scegu_draw_fog_triangles(float buf_vbo[], size_t buf_vbo_len,
                                          size_t buf_vbo_num_tris, bool useTextureAlpha,
                                          bool restoreShaderState) {
@@ -2222,6 +2262,7 @@ struct GfxRenderingAPI gfx_scegu_api = {
     gfx_scegu_set_use_alpha,
     gfx_scegu_draw_triangles,
     gfx_scegu_draw_texture_multiply_triangles,
+    gfx_scegu_draw_color_add_triangles,
     gfx_scegu_draw_fog_triangles,
     gfx_scegu_init,
     gfx_scegu_on_resize,

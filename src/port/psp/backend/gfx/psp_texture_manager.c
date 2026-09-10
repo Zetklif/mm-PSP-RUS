@@ -247,7 +247,7 @@ struct PSP_Texture *texman_reserve_memory(int width, int height, unsigned int ty
 
     current->location = psp_tex_buffer;
     psp_tex_buffer =
-        (void *) ((((unsigned int) psp_tex_buffer + tex_size + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT)
+        (void *) ((((uintptr_t) psp_tex_buffer + tex_size + TEX_ALIGNMENT - 1) / TEX_ALIGNMENT)
                   * TEX_ALIGNMENT);
 #ifdef DEBUG
     printf("TEX_MAN tex [%d] reserved %d bytes @ %x left: %d kb\n", tex_num, tex_size,
@@ -326,6 +326,10 @@ void texman_upload_swizzle(int width, int height, unsigned int type, const void 
     printf("TEX_MAN upload swizzled [%d]\n", tex_num);
 #endif
     texman_writeback_if_cached(current->location, size);
+    /* Uploads can change the format/dimensions after select_texture, or
+     * replace pixels in an allocation used in the previous frame. */
+    sPspTexGuBound = 0;
+    sceGuTexFlush();
     texman_bind_tex(tex_num);
 }
 
@@ -350,6 +354,8 @@ void texman_upload(int width, int height, unsigned int type, const void *buffer)
     // printf("TEX_MAN upload plain [%d]\n", psp_tex_number);
 #endif
     texman_writeback_if_cached(current->location, size);
+    sPspTexGuBound = 0;
+    sceGuTexFlush();
     texman_bind_tex(tex_num);
 }
 
@@ -361,6 +367,11 @@ void texman_bind_tex(unsigned int num) {
     }
 
     current = &textures[num];
+    if (current->width == 0 || current->height == 0) {
+        /* Selecting a new allocation chooses the upload destination only. */
+        psp_tex_bound = num;
+        return;
+    }
     if (sPspTexGuBound == num) {
         psp_tex_bound = num;
         return;
