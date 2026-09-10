@@ -3419,11 +3419,42 @@ Actor* Actor_Spawn(ActorContext* actorCtx, PlayState* play, s16 actorId, f32 pos
                                          CS_ID_NONE, HALFDAYBIT_ALL, NULL);
 }
 
+#if PLATFORM_PSP
+void EnTest4_ResetOverlay(void);
+void ObjGrassUnit_ResetOverlay(void);
+
+static void Actor_ResetNativeOverlay(s16 index) {
+    /* These normal overlays rely on reloading their initial static state.
+     * PSP links them permanently, so emulate reload on the first instance. */
+    switch (index) {
+        case ACTOR_EN_TEST4:
+            EnTest4_ResetOverlay();
+            break;
+        case ACTOR_OBJ_GRASS_UNIT:
+            ObjGrassUnit_ResetOverlay();
+            break;
+    }
+}
+#endif
+
+static bool Actor_TracksOverlayInstances(ActorOverlay* entry) {
+#if PLATFORM_PSP
+    return entry->profile != NULL;
+#else
+    return entry->vramStart != NULL;
+#endif
+}
+
 ActorProfile* Actor_LoadOverlay(ActorContext* actorCtx, s16 index) {
     size_t overlaySize;
     ActorOverlay* overlayEntry = &gActorOverlayTable[index];
     ActorProfile* profile;
 
+#if PLATFORM_PSP
+    if (overlayEntry->numLoaded == 0) {
+        Actor_ResetNativeOverlay(index);
+    }
+#endif
     overlaySize = (uintptr_t)overlayEntry->vramEnd - (uintptr_t)overlayEntry->vramStart;
 
     if (overlayEntry->vramStart == NULL) {
@@ -3492,7 +3523,7 @@ Actor* Actor_SpawnAsChildAndCutscene(ActorContext* actorCtx, PlayState* play, s1
     }
 
     overlayEntry = &gActorOverlayTable[index];
-    if (overlayEntry->vramStart != NULL) {
+    if (Actor_TracksOverlayInstances(overlayEntry)) {
         overlayEntry->numLoaded++;
     }
 
@@ -3644,7 +3675,7 @@ Actor* Actor_Delete(ActorContext* actorCtx, Actor* actor, PlayState* play) {
     newHead = Actor_RemoveFromCategory(play, actorCtx, actor);
     ZeldaArena_Free(actor);
 
-    if (overlayEntry->vramStart != NULL) {
+    if (Actor_TracksOverlayInstances(overlayEntry)) {
         overlayEntry->numLoaded--;
         Actor_FreeOverlay(overlayEntry);
     }

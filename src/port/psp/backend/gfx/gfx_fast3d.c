@@ -4751,6 +4751,13 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float y = (SCREEN_HEIGHT - lry / 4.0f) * RATIO_Y;
     float width = (lrx - ulx) / 4.0f * RATIO_X;
     float height = (lry - uly) / 4.0f * RATIO_Y;
+
+    /* HUD scissor windows must follow the same aspect correction and anchor
+     * as HUD vertices. Keep full-width scissors covering the whole display. */
+    if (gfx_hud_anchor_enabled() && ((ulx != 0) || (lrx < SCREEN_WIDTH * 4))) {
+        x = ulx / 4.0f * RATIO_Y + gfx_widescreen_margin_pixels() + gfx_hud_anchor_offset_pixels();
+        width = (lrx - ulx) / 4.0f * RATIO_Y;
+    }
     
     struct XYWidthHeight scissor = { x, y, width, height };
 

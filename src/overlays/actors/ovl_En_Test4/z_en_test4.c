@@ -37,6 +37,15 @@ static s32 sIsLoaded = false;
 static s16 sCsIdList[THREEDAY_DAYTIME_MAX];
 static s16 sCurCsId;
 
+#if PLATFORM_PSP
+void EnTest4_ResetOverlay(void) {
+    sIsLoaded = false;
+    sCsIdList[THREEDAY_DAYTIME_NIGHT] = CS_ID_NONE;
+    sCsIdList[THREEDAY_DAYTIME_DAY] = CS_ID_NONE;
+    sCurCsId = CS_ID_NONE;
+}
+#endif
+
 /**
  * Handles the transition from day-night and night-day.
  * This does not handle DayTelop transitions.

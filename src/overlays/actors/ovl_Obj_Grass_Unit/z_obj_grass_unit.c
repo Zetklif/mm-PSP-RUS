@@ -58,6 +58,15 @@ ObjGrassCarry* sGrassCarry0 = NULL;
 ObjGrassCarry* sGrassCarry1 = NULL;
 s32 sInitialized = false;
 
+#if PLATFORM_PSP
+void ObjGrassUnit_ResetOverlay(void) {
+    sGrassManager = NULL;
+    sGrassCarry0 = NULL;
+    sGrassCarry1 = NULL;
+    sInitialized = false;
+}
+#endif
+
 s32 ObjGrassUnit_SpawnObjGrass(Actor* this, PlayState* play) {
     sGrassManager = (ObjGrass*)Actor_Spawn(&play->actorCtx, play, ACTOR_OBJ_GRASS, 0.0f, 0.0f, 0.0f, 0, 0, 0, -1);
     if (sGrassManager != NULL) {

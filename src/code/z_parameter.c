@@ -3994,8 +3994,23 @@ void Interface_SetPerspectiveView(PlayState* play, s32 topY, s32 bottomY, s32 le
 }
 
 void Interface_SetOrthoView(InterfaceContext* interfaceCtx) {
+#if PLATFORM_PSP
+    f32 savedNear = interfaceCtx->view.zNear;
+    f32 savedFar = interfaceCtx->view.zFar;
+
+    /* HUD quads lie at z = 0. The A button leaves a perspective depth range
+     * of 10..60, which projects those quads beyond the PSP near clip plane.
+     * Center the flat HUD's depth range on zero, then preserve the settings
+     * used by the other views. Texture rectangles do not use this matrix. */
+    interfaceCtx->view.zNear = -1.0f;
+    interfaceCtx->view.zFar = 1.0f;
+#endif
     SET_FULLSCREEN_VIEWPORT(&interfaceCtx->view);
     View_ApplyOrthoToOverlay(&interfaceCtx->view);
+#if PLATFORM_PSP
+    interfaceCtx->view.zNear = savedNear;
+    interfaceCtx->view.zFar = savedFar;
+#endif
 }
 
 void Interface_DrawItemButtons(PlayState* play) {
@@ -4834,6 +4849,13 @@ void Interface_DrawClock(PlayState* play) {
             /**
              * Section: Draw Three-Day Clock's Sun (for the Day-Time Hours Tracker)
              */
+#if PLATFORM_PSP
+            /* The original hour search reaches 25 at 0xFFFF. Keep the last
+             * hour's texture until the clock wraps instead of reading OOB. */
+            if (hourIndex >= ARRAY_COUNT(sThreeDayClockHourTextures)) {
+                hourIndex = ARRAY_COUNT(sThreeDayClockHourTextures) - 1;
+            }
+#endif
             time = CURRENT_TIME;
             sp1D8 = Math_SinS(time) * -40.0f;
             temp_f14 = Math_CosS(time) * -34.0f;
@@ -6621,10 +6643,9 @@ void Interface_Draw(PlayState* play) {
         Interface_DrawAButton(play);
 
 #if PLATFORM_PSP
-        /* This function restores the fullscreen orthographic view after the A button's
-         * perspective view. Establish that view without an edge anchor so the clock's
-         * vertex quads and texture rectangles share one coordinate space. */
-        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_NONE);
+        /* Apply the same centered 4:3 scaling to the clock's vertex quads as
+         * its texture rectangles when restoring the fullscreen HUD view. */
+        gOotPspSetHudAnchor(OVERLAY_DISP++, OOT_PSP_HUD_ANCHOR_CENTER);
 #endif
         Interface_DrawPauseMenuEquippingIcons(play);
 

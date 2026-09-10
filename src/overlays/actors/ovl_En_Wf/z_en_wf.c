@@ -340,6 +340,7 @@ void EnWf_Init(Actor* thisx, PlayState* play) {
 
     Actor_ChangeCategory(play, &play->actorCtx, &this->actor, ACTORCAT_ENEMY);
 
+#if !PLATFORM_PSP
     if (!sTexturesDesegmented) {
         for (i = 0; i < ARRAY_COUNT(sNormalEyeTextures); i++) {
             sNormalEyeTextures[i] = Lib_SegmentedToVirtual(sNormalEyeTextures[i]);
@@ -347,6 +348,7 @@ void EnWf_Init(Actor* thisx, PlayState* play) {
         }
         sTexturesDesegmented = true;
     }
+#endif
     this->unk_2A2 = Rand_ZeroFloat(96.0f);
 }
 
@@ -1602,9 +1604,17 @@ void EnWf_Draw(Actor* thisx, PlayState* play) {
         Gfx_SetupDL25_Opa(play->state.gfxCtx);
 
         if (this->actor.params == 0) {
+#if PLATFORM_PSP
+            gSPSegment(POLY_OPA_DISP++, 0x08, Lib_SegmentedToVirtual(sNormalEyeTextures[this->eyeIndex]));
+#else
             gSPSegment(POLY_OPA_DISP++, 0x08, sNormalEyeTextures[this->eyeIndex]);
+#endif
         } else {
+#if PLATFORM_PSP
+            gSPSegment(POLY_OPA_DISP++, 0x08, Lib_SegmentedToVirtual(sWhiteEyeTextures[this->eyeIndex]));
+#else
             gSPSegment(POLY_OPA_DISP++, 0x08, sWhiteEyeTextures[this->eyeIndex]);
+#endif
         }
 
         CLOSE_DISPS(play->state.gfxCtx);
