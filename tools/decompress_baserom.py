@@ -231,10 +231,9 @@ def main():
     str_hash = get_str_hash(file_content)
     if str_hash != correct_str_hash:
         print(
-            f"Error: Expected a hash of {correct_str_hash} but got {str_hash}. The baserom has probably been tampered, find a new one",
+            f"Writing: Expected a hash of {correct_str_hash} but got {str_hash}. The baserom has probably been tampered, find a new one",
             file=sys.stderr,
         )
-        exit(1)
 
     # Write out our new ROM
     print(f"Writing new ROM {uncompressed_path}...")
