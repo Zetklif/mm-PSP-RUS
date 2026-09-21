@@ -2949,7 +2949,7 @@ class MessageDecoderNES(MessageDecoder):
         self.pop_char_end = self.pop_byte_end
 
     def decode_char(self, c : int) -> str:
-        decoded = bytes([c]).decode("ASCII")
+        decoded = chr(c)
         # Escape quotes within the text itself
         if decoded == "\"":
             decoded = "\\\""
@@ -2996,7 +2996,7 @@ class MessageDecoderCredits(MessageDecoder):
         self.pop_char_end = self.pop_byte_end
 
     def decode_char(self, c : int) -> str:
-        decoded = bytes([c]).decode("ASCII")
+        decoded = chr(c)
         # Escape quotes within the text itself
         if decoded == "\"":
             decoded = "\\\""
