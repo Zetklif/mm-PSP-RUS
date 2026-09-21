@@ -18,5 +18,8 @@ for tool in psp-config psp-gcc; do
     fi
 done
 
+"$repo_root/tools/check_libme_core.sh"
+echo
+
 jobs="${JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
 exec make -j"$jobs" psp-port "$@"
