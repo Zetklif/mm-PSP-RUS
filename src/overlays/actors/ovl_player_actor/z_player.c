@@ -13263,7 +13263,7 @@ s32 func_80847190(PlayState* play, Player* this, s32 arg2) {
     s16 var_s0;
 
     if (!func_800B7128(this) && !func_8082EF20(this) && !arg2) {
-        var_s0 = sPlayerControlInput->rel.stick_y * 0xF0;
+        var_s0 = -sPlayerControlInput->rel.stick_y * 0xF0;
         Math_SmoothStepToS(&this->actor.focus.rot.x, var_s0, 0xE, 0xFA0, 0x1E);
 
         var_s0 = sPlayerControlInput->rel.stick_x * -0x10;
@@ -13272,7 +13272,7 @@ s32 func_80847190(PlayState* play, Player* this, s32 arg2) {
     } else {
         s16 temp3;
 
-        temp3 = ((sPlayerControlInput->rel.stick_y >= 0) ? 1 : -1) *
+        temp3 = -((sPlayerControlInput->rel.stick_y >= 0) ? 1 : -1) *
                 (s32)((1.0f - Math_CosS(sPlayerControlInput->rel.stick_y * 0xC8)) * 1500.0f);
         this->actor.focus.rot.x += temp3;
 
