@@ -86,6 +86,7 @@ static MmPspAssetCacheBlock sMmPspAssetCacheBlocks[MM_PSP_ASSET_CACHE_BLOCK_COUN
 static u8 sMmPspFlash[MM_PSP_FLASH_SIZE] __attribute__((aligned(64)));
 static s32 sMmPspFlashInitialized;
 static s32 sMmPspFlashAsyncResult;
+static s32 sMmPspFlashBusy;
 
 static SceUID sMmPspStackThreadId = -1;
 static uintptr_t sMmPspStackStart;
@@ -628,13 +629,15 @@ void SysFlashrom_WriteAsync(void* addr, u32 pageNum, u32 pageCount) {
         memcpy(&sMmPspFlash[offset], addr, size);
         sMmPspFlashAsyncResult = MmPsp_FlushFlash();
     }
+    sMmPspFlashBusy = true;
 }
 
 s32 SysFlashrom_IsBusy(void) {
-    return false;
+    return sMmPspFlashBusy;
 }
 
 s32 SysFlashrom_AwaitResult(void) {
+    sMmPspFlashBusy = false;
     return sMmPspFlashAsyncResult;
 }
 
