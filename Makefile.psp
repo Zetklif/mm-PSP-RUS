@@ -343,9 +343,11 @@ $(PSP_PRX_ELF): $(PSP_ELF) $(PSP_ASSET_SEGMENT_SOURCE)
 $(PSP_PRX): $(PSP_PRX_ELF)
 	psp-prxgen $< $@
 
-$(PSP_PBP): $(PSP_PRX) $(PSP_ASSET_SEGMENT_STAMP)
-	mksfoex -d MEMSIZE=1 "Majora's Mask PSP Port" $(PSP_BUILD_DIR)/PARAM.SFO
-	pack-pbp $@ $(PSP_BUILD_DIR)/PARAM.SFO NULL NULL NULL NULL NULL $< NULL
+PSP_PORT_ICON0 := assets/psp/ICON0.PNG
+
+$(PSP_PBP): $(PSP_PRX) $(PSP_ASSET_SEGMENT_STAMP) $(PSP_PORT_ICON0)
+	mksfoex -d MEMSIZE=1 "The Legend of Zelda: Majora's Mask" $(PSP_BUILD_DIR)/PARAM.SFO
+	pack-pbp $@ $(PSP_BUILD_DIR)/PARAM.SFO $(PSP_PORT_ICON0) NULL NULL NULL NULL $< NULL
 
 psp-port-clean:
 	$(RM) -r $(PSP_BUILD_DIR)
