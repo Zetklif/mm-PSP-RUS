@@ -708,7 +708,7 @@ OSTime osGetTime(void) {
     u64 ticks = 0;
 
     sceRtcGetCurrentTick(&ticks);
-    return ticks;
+     return ticks * 375ULL / 8ULL;
 }
 
 void osSetTime(UNUSED OSTime time) {
