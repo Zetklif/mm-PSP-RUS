@@ -14916,7 +14916,7 @@ void Player_Action_18(Player* this, PlayState* play) {
     }
 
     if (this->av2.actionVar2 != 0) {
-        f32 yStick = sPlayerControlInput->rel.stick_y * 180;
+        f32 yStick = -sPlayerControlInput->rel.stick_y * 180;
         f32 xStick = sPlayerControlInput->rel.stick_x * -120;
         s16 temp_a0 = this->actor.shape.rot.y - Camera_GetInputDirYaw(GET_ACTIVE_CAM(play));
         s16 var_a1;
